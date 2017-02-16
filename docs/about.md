@@ -5,7 +5,7 @@ permalink: /about/
 ---
 
 ## Conditional Image Generation
-This repository contains my code for the project on conditional image generation for the graduate course Deep Learning (IFT6266) given at the Université de Montréal in winter 2017.
+This is a blog made with GitHub pages and used to discuss the results obtained for the project on conditional image generation made in the graduate course Deep Learning (IFT6266) given at the Université de Montréal in winter 2017.
 
 ## Description
 In this project we try to reconstruct the inner part of an image given the outer part of it and a sentence that describes the image. The inner part that must be reconstructed is a square of 32x32 pixels and the total image size is 64x64 pixels.
