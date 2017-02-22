@@ -3,6 +3,7 @@
 datas/
 _site/
 .sass-cache/
+__pycache__/
 
 # Ignored files
 .jekyll-metadata
