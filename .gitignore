@@ -1,6 +1,6 @@
 # Ignored directories
 .idea/
-datas/
+data/
 _site/
 .sass-cache/
 __pycache__/
