@@ -9,6 +9,7 @@ Updated on: 2017-02-21
 
 import os
 import glob
+import numpy as np
 import PIL.Image as Image
 
 # Try to import cpickle
@@ -84,26 +85,86 @@ def verify_dataset(directory):
 def crop_data(dataset_path, save_dir):
     """
     Crop a 32x32 pixel square in the middle of the data
-    to feed to the neural network.
+    to feed to the neural network. Save the images created
+    in the save_dir for future use and make a pickle file
+    containing image id, cropped image and cropped pattern
+    (to use when training)
 
-    :param directory: path to data
+    :param dataset_path: path to data
+    :param save_dir: path where to save croped images
     """
 
+    # Verification of existance of dataset path
     data_path = verify_dataset(dataset_path)
     if data_path is None:
         raise NotADirectoryError('{0} is not a directory and is not in ../data'.format(dataset_path))
 
+    # Verification of save dir path
     if verify_dataset(save_dir) is None:
         print("Creating save directory to {0}".format(save_dir))
-        os.makedirs(save_dir)
+        os.makedirs(save_dir)  # Creates dir
 
-    preserve_ratio = True
-    img_size = (64, 64)
-
+    # Retrieve all jpg file names in dataset_path
     data = glob.glob(data_path + "/*.jpg")
 
-    for i, img_path in enumerate(data):
-        img = Image.open(img_path)
-        print(i, len(data), img_path)
+    # Initialization
+    dic = {}
+    grayscale = 0
 
-        # if img.
+    # Iteration over all jpg files in dataset_path
+    for i, img_path in enumerate(data):
+
+        # Opening image
+        img = Image.open(img_path)
+
+        # Printing progress to console every 1000 images
+        if (i % 1000) == 0:
+            print(i, len(data), img_path)
+
+        # Creates a numpy array from image
+        array = np.array(img)
+
+        # Retrieve name of image
+        img_name = os.path.basename(img_path)
+
+        # Stripping .jpg at end of image name
+        cap_id = img_name[:-4]
+
+        # Finding center coordinate of image
+        center = (
+            int(np.floor(array.shape[0] / 2.)),
+            int(np.floor(array.shape[1] / 2.))
+        )
+
+        # Finding if array is grayscale
+        if len(array.shape) == 3:
+            # If not, cropping center
+            input = np.copy(array)
+            input[
+                center[0] - 16: center[0] + 16,
+                center[1] - 16: center[1] + 16, :
+            ] = 0
+            # Registering center to special variable
+            target = array[
+                center[0] - 16:center[0] + 16,
+                center[1] - 16:center[1] + 16, :
+            ]
+            # For each non grayscale image
+            input_img = Image.fromarray(input)
+            target_img = Image.fromarray(target)
+            # Save cropped image and target to save_dir
+            input_img.save(os.path.join(save_dir, "input_" + img_name))
+            target_img.save(os.path.join(save_dir, "target_" + img_name))
+            # Update dictionnary with cap_id, input and target
+            dic.update({cap_id: [input, target]})
+        else:
+            # If grayscale, printing which is
+            print(i, "grayscale")
+            grayscale += 1
+
+    # Printing how many grayscale images where found
+    print("There were {0} grayscale images.".format(grayscale))
+    # Saving dictionnary to pickle file
+    pickle_save_path = os.path.join(save_dir, "data.pkl")
+    print("registering pickle file")
+    pickle.dump(dic, open(pickle_save_path, 'wb'))
