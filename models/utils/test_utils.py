@@ -1,7 +1,7 @@
 import os
 try:
-    from utils.data_utils import verify_dataset
-    from utils.data_utils import verify_archive
+   from utils.data_utils import verify_dataset
+   from utils.data_utils import verify_archive
 except ImportError:
     from data_utils import verify_dataset
     from data_utils import verify_archive

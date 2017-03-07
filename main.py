@@ -1,3 +1,3 @@
-import utils
+from models import data_utils
 
-utils.data_utils.crop_data("train2014", "./data/input/train2014")
+data_utils.crop_data("train2014", "./data/input/train2014")

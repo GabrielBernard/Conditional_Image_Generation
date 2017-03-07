@@ -3,8 +3,7 @@ Utility data functions
 MSCOCO downsampled to 64x64 pixels
 
 Author: Gabriel Bernard
-Created on: 2017-02-21
-Updated on: 2017-02-21
+Updated on: 2017-03-07
 """
 
 import os
@@ -36,6 +35,7 @@ def verify_archive(dataset):
     if directory == "" and not os.path.isfile(dataset):
         path = os.path.join(
             os.path.split(__file__)[0],
+            "..",
             "..",
             "data",
             dataset
@@ -71,6 +71,7 @@ def verify_dataset(directory):
 
     path = os.path.join(
         os.path.split(__file__)[0],
+        "..",
         "..",
         "data",
         "inpainting",
@@ -168,3 +169,26 @@ def crop_data(dataset_path, save_dir):
     pickle_save_path = os.path.join(save_dir, "data.pkl")
     print("registering pickle file")
     pickle.dump(dic, open(pickle_save_path, 'wb'))
+
+
+def load_data(list_of_files, size):
+    """
+    This function loads the cropped data and their target to
+    train the neural network.
+
+    :param list_of_files: List that contains all the data names of a mini batch
+    :param size: Tuple that contains the size of the images
+    :return: Numpy array containing the mini batch of data in the form
+        [ mini batch, channels, height, width ]
+    """
+    # TODO: Load data function
+    ret = np.zeros([len(list_of_files), 3, size[0], size[1]])
+
+    for i, file in enumerate(list_of_files):
+        # Load image
+        img = Image.open(file)
+        img = np.asarray(img, dtype='float32')
+        img = img.transpose(2, 0, 1).reshape(1, 3, size[0], size[1])
+        ret[i] = img
+
+    return ret
