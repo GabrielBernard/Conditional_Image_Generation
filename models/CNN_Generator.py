@@ -15,6 +15,8 @@ import lasagne
 from lasagne.nonlinearities import tanh, rectify, sigmoid
 import glob
 import os
+import PIL.Image as Image
+import numpy as np
 
 try:
     from models.utils import data_utils
@@ -146,12 +148,15 @@ def main():
     data_path = "/Users/Gabriel/PycharmProjects/Conditional_Image_Generation/data/input"
     list_of_image = glob.glob(data_path + "/train2014" + "/input_*.jpg")
     list_of_target = glob.glob(data_path + "/train2014" + "/target_*.jpg")
+    list_of_image = list_of_image[0:1000]
+    list_of_target = list_of_target[0:1000]
 
     assert len(list_of_image) is not 0
     assert len(list_of_image) == len(list_of_target)
 
     n_batch = len(list_of_image) // batch_size
 
+    print("Creating Encoder")
     cnn = cnn_encoder(cnn=None,
                     n_layers=5,
                     list_of_nfilters=[64, 64, 64, 64, 64],
@@ -165,11 +170,13 @@ def main():
 
     cnn = lasagne.layers.DenseLayer(incoming=cnn, num_units=1024, nonlinearity=tanh)
 
+    print("Creating unification layer")
     cnn = lasagne.layers.ReshapeLayer(
         cnn,
         [[0]] + [64, 4, 4]
     )
 
+    print("Creating Decoder")
     cnn = cnn_decoder(dcnn=cnn,
                 n_layers=5,
                 input_shape=None,
@@ -182,6 +189,7 @@ def main():
                 list_of_activations=[tanh, rectify, rectify, rectify, sigmoid]
     )
 
+    print("Building Model")
     x = T.tensor4('x')
     target = T.tensor4('target')
 
@@ -207,10 +215,14 @@ def main():
         os.makedirs(save_dir)
 
     n_epoch = 10
-    n_of_batch_to_load_per_epoch = 8
-    n_of_preloaded_batch = n_of_batch_to_load_per_epoch * batch_size
+    n_of_batch_to_preload = 10
+    n_of_preloaded_batch = n_of_batch_to_preload * batch_size
 
-    print("Beginning training")
+    # with np.load(save_dir + 'model.npz') as f:
+    #     param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    # lasagne.layers.set_all_param_values(cnn, param_values)
+
+    print("Beginning Training")
     for e in range(n_epoch):
 
         for j in range(n_batch):
@@ -232,20 +244,31 @@ def main():
 
             if last > len(preload_input_batch):
                 last = len(preload_input_batch)
-            print('Calcul: first {0}, last {1}'.format(first, last))
+
             in_data = preload_input_batch[first:last]
             in_target = preload_target_batch[first:last]
 
             loss = train_func(in_data, in_target)
 
+            if j % 10 == 0:
+                print("Epoch: {0}/{1}, Batch: {2}/{3}, Loss: {4}".format(e, n_epoch, j, n_batch, loss))
+                np.savez(save_dir + 'model.npz', *lasagne.layers.get_all_param_values(cnn))
+
             if (j == n_batch - 1) & (((j+1) * batch_size) < len(list_of_image)):
                 first = (j+1) * batch_size
                 last = len(list_of_image)
-                print('Calcul: first {0}, last {1}'.format(first, last))
                 in_data, in_target = preload_batches(list_of_image, list_of_target, first, last)
                 loss = train_func(in_data, in_target)
 
         print(e, loss)
+    in_data, target_batch = preload_batches(list_of_image, list_of_target, 0, 10)
+    out = predict(in_data)
+    for i in range(out.shape[0]):
+        img = out[i] * 255
+        img = img.reshape(32, 32, 3)
+        img = np.uint8(img)
+        img = Image.fromarray(img)
+        img.save(save_dir + str(i) + ".jpg")
 
 
 if __name__ == "__main__":
