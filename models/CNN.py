@@ -9,79 +9,86 @@ import numpy as np
 import theano
 from theano import tensor as T
 from theano.tensor.nnet import conv2d
+from theano.tensor.signal import pool
 
 
-class CNN(object):
+class CNN_Layer(object):
     """
-    CNN is a class that builds a Convolutional
-    Neural Network with Theano.
+    CNN_Layer is a class that builds all the necessary elements
+    to make a Convolutional Neural Network layer using Theano.
+
+    References:
+    - Deep Learning Tutorial
+      Convolutional Neural Networks (LeNet)
+      http://deeplearning.net/tutorial/lenet.html#lenet
     """
-
-    class CNN_Layer(object):
-        """
-        CNN_Layer is a class that builds all the necessary elements
-        to make a Convolutional Neural Network layer using Theano.
-        """
-        # TODO: Layer Class
-        def __init__(self):
-            print("Layer Class Initialization")
-
-
-    def initialize_layers(self):
-        """
-        This funciton sets the default parameters for the CNN
-        """
-
-
-    def load_parameters(self):
-        # TODO: load parameters
-        print("Load parameters")
-
     # # # # # # # #
     # Constructor #
     # # # # # # # #
-    def __init__(self, hidden_unnits=50, number_of_layers=20, minibatch_size=50,
-                 save_param_file='CNN_param.dat', load_param_file=None):
+    def __init__(self, rng, layer_input, filter_shape, image_shape, poolsize=(3, 3), subsample=None):
         """
-        Initialize the Convolutional Neural Network
+        Create a Convolutional Neural Network Layer
+        with shared variables to use with a GPU.
 
-        :param minibatch_size: size of the mini batch
-        :param save_param_file: file to save new parameters
-        :param load_param_file: file to load previous parameters
+        :param rng: Random Number Generator.
+
+        :param layer_input: T.dtensor4 representing the symbolic
+                            image tensor of image_shape.
+
+        :param filter_shape: tuple ( number of filters, number of
+                             feature maps, filter height, filter width ).
+
+        :param image_shape: tuple ( batch size, number of feature maps,
+                            image height, image width ).
+
+        :param poolsize: pooling factor.
         """
 
-        if load_param_file is None:
-            # Setting hidden_units
-            self.hidden_units = hidden_unnits
-            # Setting number_of_layers
-            self.number_of_layers = number_of_layers
-            # Setting the minibatch_size
-            self.minibatch_size = minibatch_size
+        assert image_shape[1] == filter_shape[1]
+        self.input = layer_input
 
-            self.initialize_layers()
+        #
+        fan_in = np.prod(filter_shape[1:])
+
+        fan_out = (filter_shape[0] * np.prod(filter_shape[2:]) //
+                   np.prod(poolsize))
+        # Initialize weights with random values
+        W_bound = np.sqrt(6. / (fan_in + fan_out))
+        self.W = theano.shared(
+            np.asarray(
+                rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
+                dtype=theano.config.floatX
+            ),
+            borrow=True
+        )
+
+        # Initialize the biases
+        b_values = np.zeros((filter_shape[0],), dtype=theano.config.floatX)
+        self.b = theano.shared(value=b_values, borrow=True)
+
+        # Convolution
+        conv = conv2d(
+            input=layer_input,
+            filters=self.W,
+            filter_shape=filter_shape,
+            input_shape=image_shape,
+            subsample=subsample
+        )
+
+        if poolsize is not None:
+            # Pool feature with max pooling
+            pooled = pool.pool_2d(
+                input=conv,
+                ds=poolsize,
+                ignore_border=True
+            )
         else:
-            self.load_param_file(load_param_file)
+            pooled = 0
 
-        # Defining file to save the parameters
-        self.save_param_file = save_param_file
+        # Calculation of the activation function with the addition of
+        # the bias term. The function dimshuffle reshapes the bias to
+        # ( 1, n_filter, 1, 1 ).
+        self.output = T.tanh(pooled + self.b.dimshuffle('x', 0, 'x', 'x'))
 
-
-    def backpropagation(self):
-        # TODO: Implement backprop approach
-        print("Implement backprop approach")
-
-    def update_parameters(self):
-        # TODO: update parameters
-        print("Implement parameters updates")
-
-    def save_parameters(self):
-        # TODO: save parameters
-        print("Implement save parameters")
-
-    def train(self, train_list, valid_list, minibatch_size, max_epoch):
-        # TODO: Implement an early dropping approach
-        print("Implement an early dropping approach")
-
-    def load_param(self, file):
-        # TODO: Implement loading parameters function
-        print("Implement loading parameters funciton")
+        # Store parameters for later use
+        self.params = [self.W, self.b]

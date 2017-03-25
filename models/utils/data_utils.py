@@ -60,7 +60,8 @@ def verify_archive(dataset):
 def verify_dataset(directory):
     """
     Verify that a directory is present
-    or is in ../data/inpainting.
+    or is in ../../data/inpainting
+    (default directory relative to this file).
 
     :param directory: directory
     :return: the path to the directory
@@ -109,7 +110,7 @@ def crop_data(dataset_path, save_dir):
     data = glob.glob(data_path + "/*.jpg")
 
     # Initialization
-    dic = {}
+    # dic = {}
     grayscale = 0
 
     # Iteration over all jpg files in dataset_path
@@ -146,49 +147,48 @@ def crop_data(dataset_path, save_dir):
                 center[1] - 16: center[1] + 16, :
             ] = 0
             # Registering center to special variable
-            target = array[
-                center[0] - 16:center[0] + 16,
-                center[1] - 16:center[1] + 16, :
-            ]
+            # target = array[
+            #     center[0] - 16:center[0] + 16,
+            #     center[1] - 16:center[1] + 16, :
+            # ]
             # For each non grayscale image
             input_img = Image.fromarray(input)
-            target_img = Image.fromarray(target)
+            # target_img = Image.fromarray(target)
             # Save cropped image and target to save_dir
             input_img.save(os.path.join(save_dir, "input_" + img_name))
-            target_img.save(os.path.join(save_dir, "target_" + img_name))
+            img.save(os.path.join(save_dir, "target_" + img_name))
             # Update dictionnary with cap_id, input and target
-            dic.update({cap_id: [input, target]})
+            # dic.update({cap_id: [input, target]})
         else:
             # If grayscale, printing which is
-            print(i, "grayscale")
+            # print(i, "grayscale")
             grayscale += 1
 
     # Printing how many grayscale images where found
     print("There were {0} grayscale images.".format(grayscale))
     # Saving dictionnary to pickle file
-    pickle_save_path = os.path.join(save_dir, "data.pkl")
-    print("registering pickle file")
-    pickle.dump(dic, open(pickle_save_path, 'wb'))
+    # pickle_save_path = os.path.join(save_dir, "data.pkl")
+    # print("registering pickle file")
+    # pickle.dump(dic, open(pickle_save_path, 'wb'))
 
 
-def load_data(list_of_files, size):
+def load_data(list_of_images, size):
     """
-    This function loads the cropped data and their target to
-    train the neural network.
+    This function loads the list_of_images
+    knowing their size (row, column).
 
-    :param list_of_files: List that contains all the data names of a mini batch
+    :param list_of_images: List that contains all the data names of a mini batch
     :param size: Tuple that contains the size of the images
-    :return: Numpy array containing the mini batch of data in the form
-        [ mini batch, channels, height, width ]
+    :return: Numpy array containing the batch of data in the form
+        [ batch, channels, height, width ]
     """
-    # TODO: Load data function
-    ret = np.zeros([len(list_of_files), 3, size[0], size[1]])
+    ret = np.zeros([len(list_of_images), 3, size[0], size[1]])
 
-    for i, file in enumerate(list_of_files):
+    for i, file in enumerate(list_of_images):
         # Load image
         img = Image.open(file)
         img = np.asarray(img, dtype='float32')
-        img = img.transpose(2, 0, 1).reshape(1, 3, size[0], size[1])
-        ret[i] = img
+        img = img.transpose(2, 0, 1).reshape(3, size[0], size[1])
+        ret[i] = img / 255
 
     return ret
