@@ -8,6 +8,7 @@ Updated on: 2017-03-07
 
 import os
 import glob
+import gc
 import numpy as np
 import PIL.Image as Image
 
@@ -147,22 +148,29 @@ def crop_data(dataset_path, save_dir):
                 center[1] - 16: center[1] + 16, :
             ] = 0
             # Registering center to special variable
-            # target = array[
-            #     center[0] - 16:center[0] + 16,
-            #     center[1] - 16:center[1] + 16, :
-            # ]
+            target = array[
+                center[0] - 16:center[0] + 16,
+                center[1] - 16:center[1] + 16, :
+            ]
             # For each non grayscale image
             input_img = Image.fromarray(input)
             # target_img = Image.fromarray(target)
             # Save cropped image and target to save_dir
             input_img.save(os.path.join(save_dir, "input_" + img_name))
-            img.save(os.path.join(save_dir, "target_" + img_name))
+            target.save(os.path.join(save_dir, "target_" + img_name))
             # Update dictionnary with cap_id, input and target
             # dic.update({cap_id: [input, target]})
         else:
             # If grayscale, printing which is
             # print(i, "grayscale")
             grayscale += 1
+        # Force garbage collection after 10000 cropping
+        # to not overflow virtual memorry
+        if (i % 10000) == 0:
+            gc.collect()
+
+    # Print end of cropping
+    print("End cropping")
 
     # Printing how many grayscale images where found
     print("There were {0} grayscale images.".format(grayscale))
