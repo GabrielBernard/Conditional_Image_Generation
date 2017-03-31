@@ -57,6 +57,7 @@ def generator(input_var):
     net = batch_norm(Deconv2DLayer(net, 64, 5, stride=2))
     net = Deconv2DLayer(net, 1, 5, stride=2, nonlinearity=sigmoid)
 
+    print(net.output_shape)
     return net
 
 
@@ -65,7 +66,7 @@ def discriminator(input_var):
     Function that build the discriminator
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
-    lrelu = lasagne.nonlinearities.LeakyRectify
+    lrelu = lasagne.nonlinearities.LeakyRectify()
     net = InputLayer((None, 1, 64, 64))
     net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
     net = batch_norm(Conv2DLayer(net, 128, 5, stride=2, pad=2, nonlinearity=lrelu))
@@ -77,11 +78,20 @@ def discriminator(input_var):
 
 
 def minibatch_iterator(x, y, batch_size):
+    load_data = data_utils.load_data
     assert len(x) == len(y)
+    i = None
     for i in range(0, len(x) - batch_size + 1, batch_size):
         batch = slice(i, i + batch_size)
-        yield x[batch], y[batch]
+        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+    # Assure that if the dataset is
+    if i is None:
+        print("None")
+        i = 0
 
+    if i < len(x):
+        batch = slice(i, len(x))
+        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
 
 class GAN(object):
     """
@@ -110,9 +120,14 @@ class GAN(object):
         if load_file is not None:
             self.load_params(load_file)
 
+    def generate_images(self, noise):
+        print("Generate Image")
+
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
-        list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
-        list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
+        # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
+        # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
+        list_of_image = glob.glob(self.data_path + "/input_*.jpg")
+        list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
 
         assert len(list_of_image) is not 0
         assert len(list_of_image) == len(list_of_targets)
@@ -123,7 +138,7 @@ class GAN(object):
         x = T.tensor4('x')
         # target = T.tensor4('target')
 
-        # x.reshape((batch_size, 3, 64, 64))
+        x = x.reshape((batch_size, 3, 64, 64))
 
         print("Building the model")
         gen = generator(noise)
@@ -131,7 +146,7 @@ class GAN(object):
 
         # Theano Function that output the real and fake value
         # from the discriminator and the generator
-        real = lasagne.layers.get_output(dis)
+        real = lasagne.layers.get_output(dis, x)
         fake = lasagne.layers.get_output(dis, lasagne.layers.get_output(gen))
 
         # Create loss expressions
@@ -139,8 +154,8 @@ class GAN(object):
         dis_loss = (binary_crossentropy(real, 1) + binary_crossentropy(fake, 0)).mean()
 
         # Create update expressions
-        gen_params = lasagne.layers.get_all_params(gen)
-        dis_params = lasagne.layers.get_all_params(dis)
+        gen_params = lasagne.layers.get_all_params(gen, trainable=True)
+        dis_params = lasagne.layers.get_all_params(dis, trainable=True)
         eta = theano.shared(lasagne.utils.floatX(learning_rate))
         updates = lasagne.updates.adam(
             gen_loss, gen_params, learning_rate=eta, beta1=0.5
@@ -157,14 +172,15 @@ class GAN(object):
             [(real > .5).mean(),
              (fake < .5).mean()],
             updates=updates
-            )
-
-        # Theano function that creates data
-        gen_fn = theano.function(
-            [noise],
-            lasagne.layers.get_output(gen, deterministic=True)
         )
 
+        # Theano function that creates data
+        # gen_fn = theano.function(
+        #     [noise],
+        #     lasagne.layers.get_output(gen, deterministic=True)
+        # )
+
+        print("Begining training")
         # Training loop
         for e in range(epochs):
             b = 0
@@ -172,7 +188,9 @@ class GAN(object):
             tic = time.time()
             for batch in minibatch_iterator(list_of_image, list_of_targets, 128):
                 inputs, target = batch
-                noise = np.random.rand(len(inputs), 100).astype(theano.config.floatX)
+                inputs = inputs.astype(np.float32)
+                target = target.astype(np.float32)
+                noise = lasagne.utils.floatX(np.random.rand(len(inputs), 100))
                 err += np.array(train_fn(noise, inputs))
                 b += 1
 
@@ -186,8 +204,8 @@ class GAN(object):
                 progress = float(e) / epochs
                 eta.set_value(lasagne.utils.floatX(learning_rate * 2 * (1 - progress)))
 
-            np.savez('GAN_gen.npz', *lasagne.layers.get_all_param_values(gen))
-            np.savez('GAN_disc.npz', *lasagne.layers.get_all_param_values(dis))
+            np.savez(self.save_path + '/GAN_gen.npz', *lasagne.layers.get_all_param_values(gen))
+            np.savez(self.save_path + '/GAN_disc.npz', *lasagne.layers.get_all_param_values(dis))
 
 
 def pars_args():
@@ -222,7 +240,11 @@ def main(args):
     g = GAN(args.DataPath, args.SavePath)
 
     if args.train:
-        g.train(args.BatchSize, args.LearningRate)
+        g.train(
+            epochs=args.epochs,
+            batch_size=args.BatchSize,
+            learning_rate=args.LearningRate
+        )
 
 
 if __name__ == '__main__':
