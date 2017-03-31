@@ -154,7 +154,7 @@ def crop_data(dataset_path, save_dir):
             ]
             # For each non grayscale image
             input_img = Image.fromarray(input)
-            # target_img = Image.fromarray(target)
+            target_img = Image.fromarray(target)
             # Save cropped image and target to save_dir
             input_img.save(os.path.join(save_dir, "input_" + img_name))
             target.save(os.path.join(save_dir, "target_" + img_name))
