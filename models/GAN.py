@@ -80,6 +80,22 @@ def minibatch_iterator(x, y, batch_size):
         batch = slice(i, len(x))
         yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
 
+def input_iterator(x, batch_size):
+    load_data = data_utils.load_data
+
+    i = None
+    for i in range(0, len(x) - batch_size + 1, batch_size):
+        batch = slice(i, i + batch_size)
+        yield load_data(x[batch], (64, 64))
+    # Assure that if the dataset is
+    if i is None:
+        print("None")
+        i = 0
+
+    if i < len(x):
+        batch = slice(i, len(x))
+        yield load_data(x[batch], (64, 64))
+
 class GAN(object):
     """
     GAN class, creates a GAN to use with MSCOCO dataset.
@@ -113,13 +129,13 @@ class GAN(object):
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
         # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
         # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
-        list_of_image = glob.glob(self.data_path + "/input_*.jpg")
-        list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
+        list_of_image = glob.glob(self.data_path + "/*.jpg")
+        # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
 
         assert len(list_of_image) is not 0
-        assert len(list_of_image) == len(list_of_targets)
+        # assert len(list_of_image) == len(list_of_targets)
 
-        n_batch = len(list_of_targets) // batch_size
+        # n_batch = len(list_of_targets) // batch_size
 
         noise = T.matrix('noise')
         x = T.tensor4('x')
@@ -173,10 +189,10 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in minibatch_iterator(list_of_image, list_of_targets, 128):
-                inputs, target = batch
+            for batch in input_iterator(list_of_image, 128):
+                inputs = batch # , target = batch
                 inputs = inputs.astype(np.float32)
-                target = target.astype(np.float32)
+                # target = target.astype(np.float32)
                 noise = lasagne.utils.floatX(np.random.rand(len(inputs), 100))
                 err += np.array(train_fn(noise, inputs))
                 b += 1
