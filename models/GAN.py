@@ -3,7 +3,7 @@ import numpy as np
 import theano.tensor as T
 import theano
 import lasagne
-from lasagne.layers import Deconv2DLayer, Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer
+from lasagne.layers import Deconv2DLayer, Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, DilatedConv2DLayer
 from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
@@ -28,48 +28,35 @@ the same statistical distribution then the real data it receives
 from samples).
 """
 
-#class Generator(object):
-#    def __init__(self, size):
-#        """
-#        Constructor of the class generator
-#        :param size: Tuple of length 3 (channels, height, width)
-#        """
-#        self.channels = size[0]
-#        self.height = size[1]
-#        self.width = size[2]
-#
-#    def sample(self, n):
-#        """
-#        Function that sample from the generator
-#        :param n: Number of sample to generate
-#        """
-#        return np.random.randn(n, self.channels, self.height, self.width)
 
-
-def generator(input_var):
+def generator(input_var=None):
     """
     Function that build the generator network
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
     net = InputLayer(shape=(None, 100), input_var=input_var)
-    net = batch_norm(DenseLayer(net, 128*64*64))
-    net = ReshapeLayer(net, ([0], 128, 64, 64))
-    net = batch_norm(Deconv2DLayer(net, 64, 5, stride=2))
-    net = Deconv2DLayer(net, 1, 5, stride=2, nonlinearity=sigmoid)
+    net = batch_norm(DenseLayer(net, 1024))
+    # Project
+    net = batch_norm(DenseLayer(net, 3*64*64))
+    # Reshape
+    net = ReshapeLayer(net, ([0], 3, 64, 64))
+
+    net = batch_norm(DilatedConv2DLayer(net, 64, 1, dilation=1))
+    net = DilatedConv2DLayer(net, 3, 1, dilation=1, nonlinearity=sigmoid)
 
     print(net.output_shape)
     return net
 
 
-def discriminator(input_var):
+def discriminator(input_var=None):
     """
     Function that build the discriminator
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
     lrelu = lasagne.nonlinearities.LeakyRectify()
-    net = InputLayer((None, 1, 64, 64))
+    net = InputLayer((None, 3, 64, 64), input_var=input_var)
     net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
-    net = batch_norm(Conv2DLayer(net, 128, 5, stride=2, pad=2, nonlinearity=lrelu))
+    net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
     net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
     print(net.output_shape)
@@ -194,7 +181,7 @@ class GAN(object):
                 err += np.array(train_fn(noise, inputs))
                 b += 1
 
-            print("Epoch {} of {}, time ellapsed {:.3f} seconds".format(
+            print("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
                 e, epochs, time.time() - tic
             ))
 
