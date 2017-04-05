@@ -3,7 +3,7 @@ import numpy as np
 import theano.tensor as T
 import theano
 import lasagne
-from lasagne.layers import Deconv2DLayer, Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, DilatedConv2DLayer
+from lasagne.layers import Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, DilatedConv2DLayer
 from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
@@ -73,12 +73,12 @@ def minibatch_iterator(x, y, batch_size):
         yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
     # Assure that if the dataset is
     if i is None:
-        print("None")
         i = 0
 
     if i < len(x):
         batch = slice(i, len(x))
         yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+
 
 def input_iterator(x, batch_size):
     load_data = data_utils.load_data
@@ -89,12 +89,12 @@ def input_iterator(x, batch_size):
         yield load_data(x[batch], (64, 64))
     # Assure that if the dataset is
     if i is None:
-        print("None")
         i = 0
 
     if i < len(x):
         batch = slice(i, len(x))
         yield load_data(x[batch], (64, 64))
+
 
 class GAN(object):
     """
@@ -110,7 +110,7 @@ class GAN(object):
         """
         # Verify directory of data_set
         if data_utils.verify_dataset(data_path):
-            self.data_path=data_path
+            self.data_path = data_path
         else:
             raise ValueError("{0} is not a path".format(data_path))
         # Verify directory of save_path
@@ -189,7 +189,7 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in input_iterator(list_of_image, 128):
+            for batch in input_iterator(list_of_image, batch_size):
                 inputs = batch # , target = batch
                 inputs = inputs.astype(np.float32)
                 # target = target.astype(np.float32)
@@ -209,6 +209,8 @@ class GAN(object):
 
             np.savez(self.save_path + '/GAN_gen.npz', *lasagne.layers.get_all_param_values(gen))
             np.savez(self.save_path + '/GAN_disc.npz', *lasagne.layers.get_all_param_values(dis))
+
+        print("End of training")
 
 
 def pars_args():

@@ -157,7 +157,8 @@ def crop_data(dataset_path, save_dir):
             target_img = Image.fromarray(target)
             # Save cropped image and target to save_dir
             input_img.save(os.path.join(save_dir, "input_" + img_name))
-            target.save(os.path.join(save_dir, "target_" + img_name))
+            target_img.save(os.path.join(save_dir, "target_" + img_name))
+            img.save(os.path.join(save_dir, 'img_' + img_name))
             # Update dictionnary with cap_id, input and target
             # dic.update({cap_id: [input, target]})
         else:
