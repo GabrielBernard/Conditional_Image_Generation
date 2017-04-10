@@ -201,3 +201,50 @@ def load_data(list_of_images, size):
         ret[i] = img / 255
 
     return ret
+
+
+def minibatch_iterator(x, y, batch_size):
+    """
+    Iterator on a minibatch.
+
+    :param x: Input data to fetch
+    :param y: Target data to fetch
+    :param batch_size: Size of a batch
+    :return: Two arrays containing the input and target
+    """
+    assert len(x) == len(y)
+    i = None
+    for i in range(0, len(x) - batch_size + 1, batch_size):
+        batch = slice(i, i + batch_size)
+        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+    # Make sure that all the dataset is passed
+    # even if it is less then a full batch_size
+    if i is None:
+        i = 0
+    # Fetch the last data from the dataset
+    if i < len(x):
+        batch = slice(i, len(x))
+        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+
+
+def input_iterator(x, batch_size):
+    """
+    Iterator on an input data.
+
+    :param x: Input data to fetch
+    :param batch_size: Size of a batch
+    :return: Array of data
+    """
+
+    i = None
+    for i in range(0, len(x) - batch_size + 1, batch_size):
+        batch = slice(i, i + batch_size)
+        yield load_data(x[batch], (64, 64))
+    # Make sure that all the dataset is passed
+    # even if it is less then a full batch_size
+    if i is None:
+        i = 0
+    # Fetch the last data from the dataset
+    if i < len(x):
+        batch = slice(i, len(x))
+        yield load_data(x[batch], (64, 64))

@@ -3,7 +3,7 @@ import numpy as np
 import theano.tensor as T
 import theano
 import lasagne
-from lasagne.layers import Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, DilatedConv2DLayer
+from lasagne.layers import Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, Deconv2DLayer
 from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
@@ -29,22 +29,47 @@ from samples).
 """
 
 
-def generator(input_var=None):
+def image_encoder(input_var=None):
+
+    # Output size of convolution formula:
+    # o = (i + 2p - k) / s + 1
+    # Where o is the output size, i the input, p
+    # the padding, k the kernel size and s the stride
+
+    tanh = lasagne.nonlinearities.tanh
+    net = InputLayer(shape=(None, 3, 64, 64), input_var=input_var)
+    # 128 units of 32 x 32
+    net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
+    # 256 units of 16 x 16
+    net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
+    # 512 units of 8 x 8
+    net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
+    # 1024 units of 4 x 4
+    net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
+    # Fully connected layer
+    net = DenseLayer(net, 100, nonlinearity=tanh)
+
+    print("Image encoder output shape: ", net.output_shape)
+    return net
+
+
+def generator(net):
     """
     Function that build the generator network
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
-    net = InputLayer(shape=(None, 100), input_var=input_var)
-    net = batch_norm(DenseLayer(net, 1024))
+    # net = InputLayer(shape=(None, 100), input_var=input_var)
+    # net = batch_norm(DenseLayer(net, 1024))
     # Project
-    net = batch_norm(DenseLayer(net, 3*64*64))
+    net = batch_norm(DenseLayer(net, 1024*4*4))
     # Reshape
-    net = ReshapeLayer(net, ([0], 3, 64, 64))
+    net = ReshapeLayer(net, ([0], 1024, 4, 4))
 
-    net = batch_norm(DilatedConv2DLayer(net, 64, 1, dilation=1))
-    net = DilatedConv2DLayer(net, 3, 1, dilation=1, nonlinearity=sigmoid)
+    net = batch_norm(Deconv2DLayer(net, 128, 4, stride=4))
+    net = batch_norm(Deconv2DLayer(net, 64, 2, stride=2))
+    net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=sigmoid)
 
-    print(net.output_shape)
+    print("Generator output shape: ", net.output_shape)
     return net
 
 
@@ -59,38 +84,55 @@ def discriminator(input_var=None):
     net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
     net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
-    print(net.output_shape)
+    print("Discriminator output shape : ", net.output_shape)
 
     return net
 
 
 def minibatch_iterator(x, y, batch_size):
+    """
+    Iterator on a minibatch.
+
+    :param x: Input data to fetch
+    :param y: Target data to fetch
+    :param batch_size: Size of a batch
+    :return: Two arrays containing the input and target
+    """
     load_data = data_utils.load_data
     assert len(x) == len(y)
     i = None
     for i in range(0, len(x) - batch_size + 1, batch_size):
         batch = slice(i, i + batch_size)
         yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
-    # Assure that if the dataset is
+    # Make sure that all the dataset is passed
+    # even if it is less then a full batch_size
     if i is None:
         i = 0
-
+    # Fetch the last data from the dataset
     if i < len(x):
         batch = slice(i, len(x))
         yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
 
 
 def input_iterator(x, batch_size):
+    """
+    Iterator on an input data.
+
+    :param x: Input data to fetch
+    :param batch_size: Size of a batch
+    :return: Array of data
+    """
     load_data = data_utils.load_data
 
     i = None
     for i in range(0, len(x) - batch_size + 1, batch_size):
         batch = slice(i, i + batch_size)
         yield load_data(x[batch], (64, 64))
-    # Assure that if the dataset is
+    # Make sure that all the dataset is passed
+    # even if it is less then a full batch_size
     if i is None:
         i = 0
-
+    # Fetch the last data from the dataset
     if i < len(x):
         batch = slice(i, len(x))
         yield load_data(x[batch], (64, 64))
@@ -117,39 +159,63 @@ class GAN(object):
         if not os.path.isdir(save_path):
             os.makedirs(save_path)
 
-        self.save_path=save_path
+        self.save_path = save_path
 
         # Load parameters if load_file is given
         if load_file is not None:
-            self.load_params(load_file)
+            # self.load_params(load_file)
+            self.load_params = load_file
 
     def generate_images(self, noise):
-        print("Generate Image")
+        print("Building the generator")
+        gen = generator(noise)
+        # with np.load(self.load_params + '/gan_gen.npz') as f:
+        #     gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        # lasagne.layers.set_all_param_values(gen, gen_param_values)
+        #
+        # print("Building the function")
+        # gen_fn = theano.function(
+        #     [noise],
+        #     lasagne.layers.get_output(gen, deterministic=True)
+        # )
+        # print("Generate Image")
+        # samples = gen_fn(lasagne.utils.floatX(np.random.rand(10, 100)))
+        # try:
+        #     import matplotlib.pyplot as plt
+        # except ImportError:
+        #     pass
+        # else:
+        #     plt.imsave('samples.png',
+        #     (samples.reshape(10, 3, 64, 64)))
 
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
         # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
         # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
-        list_of_image = glob.glob(self.data_path + "/*.jpg")
-        # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
+        list_of_image = glob.glob(self.data_path + "/input_*.jpg")
+        list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
 
         assert len(list_of_image) is not 0
         # assert len(list_of_image) == len(list_of_targets)
 
         # n_batch = len(list_of_targets) // batch_size
 
-        noise = T.matrix('noise')
+        # noise = T.matrix('noise')
         x = T.tensor4('x')
+        y = T.tensor4('image')
         # target = T.tensor4('target')
 
         x = x.reshape((batch_size, 3, 64, 64))
+        y = y.reshape((batch_size, 3, 64, 64))
 
         print("Building the model")
+        noise = image_encoder(x)
         gen = generator(noise)
-        dis = discriminator(x)
+
+        dis = discriminator(y)
 
         # Theano Function that output the real and fake value
         # from the discriminator and the generator
-        real = lasagne.layers.get_output(dis, x)
+        real = lasagne.layers.get_output(dis, y)
         fake = lasagne.layers.get_output(dis, lasagne.layers.get_output(gen))
 
         # Create loss expressions
@@ -169,9 +235,10 @@ class GAN(object):
             )
         )
 
+        print("Compiling function")
         # Theano function that performs a training on a minibatch
         train_fn = theano.function(
-            [noise, x],
+            [x, y],
             [(real > .5).mean(),
              (fake < .5).mean()],
             updates=updates
@@ -189,12 +256,11 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in input_iterator(list_of_image, batch_size):
-                inputs = batch # , target = batch
+            for batch in minibatch_iterator(list_of_image, list_of_targets, batch_size):
+                inputs, target = batch
                 inputs = inputs.astype(np.float32)
-                # target = target.astype(np.float32)
-                noise = lasagne.utils.floatX(np.random.rand(len(inputs), 100))
-                err += np.array(train_fn(noise, inputs))
+                target = target.astype(np.float32)
+                err += np.array(train_fn(target, inputs))
                 b += 1
 
             print("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
@@ -214,7 +280,7 @@ class GAN(object):
 
 
 def pars_args():
-    arguments = argparse.ArgumentParser();
+    arguments = argparse.ArgumentParser()
     arguments.add_argument(
         '-dp', '--DataPath', type=str,
         help="Complete path to dataset"
@@ -232,24 +298,36 @@ def pars_args():
         help="Number of step for training"
     )
     arguments.add_argument(
-        '-t', '--train', type=bool, default=True,
+        '-t', '--train', type=int, default=1,
         help="Define if the GAN must be trained"
     )
     arguments.add_argument(
         '-lr', '--LearningRate', type=float, default=2e-4,
         help="Defines the learning rate of the GAN network"
     )
+    arguments.add_argument(
+        '-lp', "--LoadPath", type=str, default=None,
+        help="Complete path to directory where to load stored computation"
+    )
     return arguments.parse_args()
 
-def main(args):
-    g = GAN(args.DataPath, args.SavePath)
 
-    if args.train:
+def main(args):
+    g = GAN(
+        data_path=args.DataPath,
+        save_path=args.SavePath,
+        load_file=args.LoadPath
+    )
+
+    if args.train is not 0:
         g.train(
             epochs=args.epochs,
             batch_size=args.BatchSize,
             learning_rate=args.LearningRate
         )
+    else:
+        noise = T.matrix('noise')
+        g.generate_images(noise)
 
 
 if __name__ == '__main__':
