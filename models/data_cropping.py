@@ -6,6 +6,7 @@ try:
 except ImportError:
     from utils import data_utils
 
+
 def main():
     parser = argparse.ArgumentParser()
     requiredArg = parser.add_argument_group('Required Arguments')
@@ -15,6 +16,8 @@ def main():
     print(args.datapath)
     print(args.savepath)
     data_utils.crop_data(args.datapath, args.savepath)
+    print("Ending of data_cropping program")
+
 
 if __name__ == '__main__':
     main()

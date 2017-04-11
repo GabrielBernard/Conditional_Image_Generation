@@ -8,6 +8,7 @@ from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
 import glob
+import _pickle as pickle
 import time
 
 try:
@@ -191,10 +192,12 @@ class GAN(object):
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
         # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
         # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
-        list_of_image = glob.glob(self.data_path + "/input_*.jpg")
-        list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
+        # list_of_image = glob.glob(self.data_path + "/input_*.jpg")
+        # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
+        dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
+        prefixes = ['/input_', '/img_']
 
-        assert len(list_of_image) is not 0
+        # assert len(list_of_image) is not 0
         # assert len(list_of_image) == len(list_of_targets)
 
         # n_batch = len(list_of_targets) // batch_size
@@ -256,7 +259,12 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in minibatch_iterator(list_of_image, list_of_targets, batch_size):
+            for batch in data_utils.minibatch_dic_iterator(
+                    dic=dic,
+                    batch_size=batch_size,
+                    prefixes=prefixes,
+                    data_path=self.data_path
+            ):
                 inputs, target = batch
                 inputs = inputs.astype(np.float32)
                 target = target.astype(np.float32)
@@ -329,6 +337,7 @@ def main(args):
         noise = T.matrix('noise')
         g.generate_images(noise)
 
+    return
 
 if __name__ == '__main__':
     main(pars_args())

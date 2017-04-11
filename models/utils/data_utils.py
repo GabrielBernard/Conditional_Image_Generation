@@ -111,9 +111,9 @@ def crop_data(dataset_path, save_dir):
     data = glob.glob(data_path + "/*.jpg")
 
     # Initialization
-    # dic = {}
     grayscale = 0
-
+    dic = {}
+    index = 0
     # Iteration over all jpg files in dataset_path
     for i, img_path in enumerate(data):
 
@@ -160,7 +160,8 @@ def crop_data(dataset_path, save_dir):
             target_img.save(os.path.join(save_dir, "target_" + img_name))
             img.save(os.path.join(save_dir, 'img_' + img_name))
             # Update dictionnary with cap_id, input and target
-            # dic.update({cap_id: [input, target]})
+            dic.update({index: cap_id})
+            index += 1
         else:
             # If grayscale, printing which is
             # print(i, "grayscale")
@@ -176,9 +177,10 @@ def crop_data(dataset_path, save_dir):
     # Printing how many grayscale images where found
     print("There were {0} grayscale images.".format(grayscale))
     # Saving dictionnary to pickle file
-    # pickle_save_path = os.path.join(save_dir, "data.pkl")
-    # print("registering pickle file")
-    # pickle.dump(dic, open(pickle_save_path, 'wb'))
+    pickle_save_path = os.path.join(save_dir, "data.pkl")
+    print("registering pickle file")
+    pickle.dump(dic, open(pickle_save_path, 'wb'))
+    print("End of cropping with last index: ", index)
 
 
 def load_data(list_of_images, size):
@@ -201,6 +203,30 @@ def load_data(list_of_images, size):
         ret[i] = img / 255
 
     return ret
+
+
+def minibatch_dic_iterator(dic, batch_size, prefixes, data_path):
+
+    assert len(dic) > 0
+    i = None
+    keys = dic.keys()
+    pref0 = data_path + prefixes[0]
+    pref1 = data_path + prefixes[1]
+    for i in range(0, len(keys) - batch_size + 1, batch_size):
+        batch = range(i, i + batch_size)
+        input = [pref0 + dic.get(key) + '.jpg' for key in batch]
+        target = [pref1 + dic.get(key) + '.jpg' for key in batch]
+        yield load_data(input, (64, 64)), load_data(target, (64, 64))
+    # Make sure that all the dataset is passed
+    # even if it is less then a full batch_size
+    if i is None:
+        i = 0
+    # Fetch the last data from the dataset
+    if i < len(dic):
+        batch = range(i, len(dic))
+        input = [pref0 + dic.get(key) + '.jpg' for key in batch]
+        target = [pref1 + dic.get(key) + '.jpg' for key in batch]
+        yield load_data(input, (64, 64)), load_data(target, (64, 64))
 
 
 def minibatch_iterator(x, y, batch_size):
