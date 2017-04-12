@@ -7,7 +7,7 @@ from lasagne.layers import Conv2DLayer, DenseLayer, batch_norm, InputLayer, Resh
 from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
-import glob
+import PIL.Image as Image
 import _pickle as pickle
 import time
 
@@ -81,10 +81,27 @@ def discriminator(input_var=None):
     """
     lrelu = lasagne.nonlinearities.LeakyRectify()
     net = InputLayer((None, 3, 64, 64), input_var=input_var)
-    net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
-    net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
+    # 128 units of 32 x 32
+    net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
+    # 128 uints of 32 x 32
+    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
+    # 256 units of 16 x 16
+    net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
+    # 256 units of 16 x 16
+    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
+    # 512 units of 8 x 8
+    net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
+    # 512 units of 8 x 8
+    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    # 1024 units of 4 x 4
+    net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
+    # Fully connected layers
     net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
+    # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
+    # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
+    # net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
+    # net = DenseLayer(net, 1, nonlinearity=sigmoid)
     print("Discriminator output shape : ", net.output_shape)
 
     return net
@@ -194,8 +211,10 @@ class GAN(object):
         # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
         # list_of_image = glob.glob(self.data_path + "/input_*.jpg")
         # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
+        print("Loading Data to ram")
         dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
         prefixes = ['/input_', '/img_']
+        data = data_utils.load_data_to_ram(dic=dic, prefixes=prefixes, data_path=self.data_path)
 
         # assert len(list_of_image) is not 0
         # assert len(list_of_image) == len(list_of_targets)
@@ -248,10 +267,10 @@ class GAN(object):
         )
 
         # Theano function that creates data
-        # gen_fn = theano.function(
-        #     [noise],
-        #     lasagne.layers.get_output(gen, deterministic=True)
-        # )
+        gen_fn = theano.function(
+            [x],
+            lasagne.layers.get_output(gen, deterministic=True)
+        )
 
         print("Begining training")
         # Training loop
@@ -259,12 +278,7 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in data_utils.minibatch_dic_iterator(
-                    dic=dic,
-                    batch_size=batch_size,
-                    prefixes=prefixes,
-                    data_path=self.data_path
-            ):
+            for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
                 inputs, target = batch
                 inputs = inputs.astype(np.float32)
                 target = target.astype(np.float32)
@@ -283,6 +297,14 @@ class GAN(object):
 
             np.savez(self.save_path + '/GAN_gen.npz', *lasagne.layers.get_all_param_values(gen))
             np.savez(self.save_path + '/GAN_disc.npz', *lasagne.layers.get_all_param_values(dis))
+
+        output = gen_fn(data[0].astype(np.float32))
+
+        # for i in output:
+        #     img = np.asarray(i*255, dtype=np.uint8)
+        #     img = Image.fromarray(img.reshape(64, 64, 3))
+        #     img.show()
+
 
         print("End of training")
 

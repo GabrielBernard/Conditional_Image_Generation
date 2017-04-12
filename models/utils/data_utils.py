@@ -205,6 +205,26 @@ def load_data(list_of_images, size):
     return ret
 
 
+def load_data_to_ram(dic, prefixes, data_path):
+    input_array = np.zeros((len(dic), 3, 64, 64))
+    target_array = np.zeros((len(dic), 3, 64, 64))
+    input = data_path + prefixes[0]
+    target = data_path + prefixes[1]
+    for i in dic:
+        name = dic[i] + '.jpg'
+        img = Image.open(input + name)
+        img = np.asarray(img, dtype='float32')
+        img = img.reshape(3, 64, 64)
+        input_array[i] = img / 255
+
+        img = Image.open(target + name)
+        img = np.asarray(img, dtype='float32')
+        img = img.reshape(3, 64, 64)
+        target_array[i] = img / 255
+
+    return input_array, target_array
+
+
 def minibatch_dic_iterator(dic, batch_size, prefixes, data_path):
 
     assert len(dic) > 0
@@ -242,7 +262,7 @@ def minibatch_iterator(x, y, batch_size):
     i = None
     for i in range(0, len(x) - batch_size + 1, batch_size):
         batch = slice(i, i + batch_size)
-        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+        yield x[batch], y[batch]
     # Make sure that all the dataset is passed
     # even if it is less then a full batch_size
     if i is None:
@@ -250,7 +270,7 @@ def minibatch_iterator(x, y, batch_size):
     # Fetch the last data from the dataset
     if i < len(x):
         batch = slice(i, len(x))
-        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
+        yield x[batch], y[batch]
 
 
 def input_iterator(x, batch_size):
