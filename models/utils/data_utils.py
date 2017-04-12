@@ -205,24 +205,34 @@ def load_data(list_of_images, size):
     return ret
 
 
-def load_data_to_ram(dic, prefixes, data_path):
-    input_array = np.zeros((len(dic), 3, 64, 64))
-    target_array = np.zeros((len(dic), 3, 64, 64))
+def load_data_to_ram(length, dic, prefixes, data_path):
+    l = min(length, len(dic))
+    input_array = np.zeros((l, 3, 64, 64))
+    target_array = np.zeros((l, 3, 64, 64))
     input = data_path + prefixes[0]
     target = data_path + prefixes[1]
+    j = 0
     for i in dic:
         name = dic[i] + '.jpg'
         img = Image.open(input + name)
         img = np.asarray(img, dtype='float32')
         img = img.reshape(3, 64, 64)
-        input_array[i] = img / 255
+        input_array[j] = img / 255
 
         img = Image.open(target + name)
         img = np.asarray(img, dtype='float32')
         img = img.reshape(3, 64, 64)
-        target_array[i] = img / 255
+        target_array[j] = img / 255
+        j += 1
 
-    return input_array, target_array
+        if (j == length) | (i == len(dic) - 1):
+            yield input_array, target_array
+            l = min(length, len(dic) - i)
+            input_array = np.zeros((l, 3, 64, 64))
+            target_array = np.zeros((l, 3, 64, 64))
+            input = data_path + prefixes[0]
+            target = data_path + prefixes[1]
+            j = 0
 
 
 def minibatch_dic_iterator(dic, batch_size, prefixes, data_path):

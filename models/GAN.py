@@ -65,9 +65,11 @@ def generator(net):
     net = batch_norm(DenseLayer(net, 1024*4*4))
     # Reshape
     net = ReshapeLayer(net, ([0], 1024, 4, 4))
-
+    # 128 units of 16 x 16
     net = batch_norm(Deconv2DLayer(net, 128, 4, stride=4))
+    # 64 units of 32 x 32
     net = batch_norm(Deconv2DLayer(net, 64, 2, stride=2))
+    # 3 units of 64 x 64
     net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=sigmoid)
 
     print("Generator output shape: ", net.output_shape)
@@ -84,15 +86,15 @@ def discriminator(input_var=None):
     # 128 units of 32 x 32
     net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
     # 128 uints of 32 x 32
-    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
     # 256 units of 16 x 16
     net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
     # 256 units of 16 x 16
-    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
     # 512 units of 8 x 8
     net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
     # 512 units of 8 x 8
-    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
     # 1024 units of 4 x 4
     net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
     # Fully connected layers
@@ -211,10 +213,8 @@ class GAN(object):
         # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
         # list_of_image = glob.glob(self.data_path + "/input_*.jpg")
         # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
-        print("Loading Data to ram")
         dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
         prefixes = ['/input_', '/img_']
-        data = data_utils.load_data_to_ram(dic=dic, prefixes=prefixes, data_path=self.data_path)
 
         # assert len(list_of_image) is not 0
         # assert len(list_of_image) == len(list_of_targets)
@@ -267,10 +267,10 @@ class GAN(object):
         )
 
         # Theano function that creates data
-        gen_fn = theano.function(
-            [x],
-            lasagne.layers.get_output(gen, deterministic=True)
-        )
+        # gen_fn = theano.function(
+        #     [x],
+        #     lasagne.layers.get_output(gen, deterministic=True)
+        # )
 
         print("Begining training")
         # Training loop
@@ -278,12 +278,18 @@ class GAN(object):
             b = 0
             err = 0
             tic = time.time()
-            for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
-                inputs, target = batch
-                inputs = inputs.astype(np.float32)
-                target = target.astype(np.float32)
-                err += np.array(train_fn(target, inputs))
-                b += 1
+            for data in data_utils.load_data_to_ram(
+                    length=10*batch_size,
+                    dic=dic,
+                    prefixes=prefixes,
+                    data_path=self.data_path
+            ):
+                for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+                    inputs, targets = batch
+                    inputs = inputs.astype(np.float32)
+                    targets = targets.astype(np.float32)
+                    err += np.array(train_fn(inputs, targets))
+                    b += 1
 
             print("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
                 e, epochs, time.time() - tic
@@ -298,7 +304,7 @@ class GAN(object):
             np.savez(self.save_path + '/GAN_gen.npz', *lasagne.layers.get_all_param_values(gen))
             np.savez(self.save_path + '/GAN_disc.npz', *lasagne.layers.get_all_param_values(dis))
 
-        output = gen_fn(data[0].astype(np.float32))
+        # output = gen_fn(data[0].astype(np.float32))
 
         # for i in output:
         #     img = np.asarray(i*255, dtype=np.uint8)
