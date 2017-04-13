@@ -13,14 +13,8 @@ import numpy as np
 import PIL.Image as Image
 
 # Try to import cpickle
-try:
-    import _pickle as pickle
-except ImportError:
-    try:
-        import cPickle as pickle
-    except ImportError:
-        import pickle as pickle
-
+# import six.moves.cPickle as pickle
+import _pickle as pickle
 
 def verify_archive(dataset):
     """

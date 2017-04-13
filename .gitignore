@@ -12,3 +12,4 @@ Gemfile
 Gemfile.lock
 ./datas/examples.py
 *.pbs
+*.pyc

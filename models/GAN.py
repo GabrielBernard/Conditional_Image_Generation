@@ -8,8 +8,10 @@ from lasagne.nonlinearities import sigmoid
 from lasagne.objectives import binary_crossentropy
 import os
 import PIL.Image as Image
-import _pickle as pickle
 import time
+import _pickle as pickle
+import logging
+# import six.moves.cPickle as pickle
 
 try:
     from models.utils import data_utils
@@ -50,7 +52,7 @@ def image_encoder(input_var=None):
     # Fully connected layer
     net = DenseLayer(net, 100, nonlinearity=tanh)
 
-    print("Image encoder output shape: ", net.output_shape)
+    logging.info("Image encoder output shape: {}".format( net.output_shape))
     return net
 
 
@@ -65,14 +67,20 @@ def generator(net):
     net = batch_norm(DenseLayer(net, 1024*4*4))
     # Reshape
     net = ReshapeLayer(net, ([0], 1024, 4, 4))
+    # 512 units of 8 x 8
+    net = batch_norm(Deconv2DLayer(net, 512, 2, stride=2))
+    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    # 256 units of 16 x 16
+    net = batch_norm(Deconv2DLayer(net, 256, 9))
+    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
     # 128 units of 16 x 16
-    net = batch_norm(Deconv2DLayer(net, 128, 4, stride=4))
+    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
     # 64 units of 32 x 32
     net = batch_norm(Deconv2DLayer(net, 64, 2, stride=2))
     # 3 units of 64 x 64
     net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=sigmoid)
 
-    print("Generator output shape: ", net.output_shape)
+    logging.info("Generator output shape: {}".format( net.output_shape))
     return net
 
 
@@ -86,25 +94,25 @@ def discriminator(input_var=None):
     # 128 units of 32 x 32
     net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
     # 128 uints of 32 x 32
-    # net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
+    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
     # 256 units of 16 x 16
     net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
     # 256 units of 16 x 16
-    # net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
+    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
     # 512 units of 8 x 8
     net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
     # 512 units of 8 x 8
-    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
     # 1024 units of 4 x 4
     net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
     # Fully connected layers
-    net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
+    net = batch_norm(DenseLayer(net, 512, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
     # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
     # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
     # net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
     # net = DenseLayer(net, 1, nonlinearity=sigmoid)
-    print("Discriminator output shape : ", net.output_shape)
+    logging.info("Discriminator output shape : {}".format( net.output_shape))
 
     return net
 
@@ -186,27 +194,34 @@ class GAN(object):
             # self.load_params(load_file)
             self.load_params = load_file
 
-    def generate_images(self, noise):
-        print("Building the generator")
+    def generate_images(self, indexes):
+        dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
+        pre = self.data_path + '/input_'
+
+        logging.info("Building the generator")
+        x = T.tensor4('x')
+        noise = image_encoder(x)
         gen = generator(noise)
-        # with np.load(self.load_params + '/gan_gen.npz') as f:
-        #     gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-        # lasagne.layers.set_all_param_values(gen, gen_param_values)
-        #
-        # print("Building the function")
-        # gen_fn = theano.function(
-        #     [noise],
-        #     lasagne.layers.get_output(gen, deterministic=True)
-        # )
-        # print("Generate Image")
-        # samples = gen_fn(lasagne.utils.floatX(np.random.rand(10, 100)))
-        # try:
-        #     import matplotlib.pyplot as plt
-        # except ImportError:
-        #     pass
-        # else:
-        #     plt.imsave('samples.png',
-        #     (samples.reshape(10, 3, 64, 64)))
+        with np.load(self.load_params + '/gan_gen.npz') as f:
+            gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(gen, gen_param_values)
+
+        logging.info("Building the function")
+        gen_fn = theano.function(
+            [x],
+            lasagne.layers.get_output(gen, deterministic=True)
+        )
+        logging.info("Generate Image")
+        list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
+        data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
+        samples = gen_fn(lasagne.utils.floatX(data))
+
+        for img in samples:
+            img *= 255
+            img = img.reshape(64, 64, 3)
+            img = img.astype(np.uint8)
+            img = Image.fromarray(img)
+            img.show()
 
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
         # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
@@ -229,7 +244,7 @@ class GAN(object):
         x = x.reshape((batch_size, 3, 64, 64))
         y = y.reshape((batch_size, 3, 64, 64))
 
-        print("Building the model")
+        logging.info("Building the model")
         noise = image_encoder(x)
         gen = generator(noise)
 
@@ -257,7 +272,7 @@ class GAN(object):
             )
         )
 
-        print("Compiling function")
+        logging.info("Compiling function")
         # Theano function that performs a training on a minibatch
         train_fn = theano.function(
             [x, y],
@@ -272,7 +287,7 @@ class GAN(object):
         #     lasagne.layers.get_output(gen, deterministic=True)
         # )
 
-        print("Begining training")
+        logging.info("Begining training")
         # Training loop
         for e in range(epochs):
             b = 0
@@ -291,11 +306,11 @@ class GAN(object):
                     err += np.array(train_fn(inputs, targets))
                     b += 1
 
-            print("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
+            logging.info("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
                 e, epochs, time.time() - tic
             ))
 
-            print("Loss {}".format(err / b))
+            logging.info("Loss {}".format(err / b))
 
             if e >= epochs // 2:
                 progress = float(e) / epochs
@@ -312,21 +327,23 @@ class GAN(object):
         #     img.show()
 
 
-        print("End of training")
+        logging.info("End of training")
 
 
 def pars_args():
     arguments = argparse.ArgumentParser()
     arguments.add_argument(
         '-dp', '--DataPath', type=str,
-        help="Complete path to dataset"
+        help="Complete path to dataset",
+        required=True
     )
     arguments.add_argument(
         '-sp', '--SavePath', type=str,
-        help="Complete path to directory where to store computation"
+        help="Complete path to directory where to store computation",
+        required=True
     )
     arguments.add_argument(
-        '-bs', "--BatchSize", type=int,
+        '-bs', "--BatchSize", type=int, default=64,
         help="Size of the minibatch to train"
     )
     arguments.add_argument(
@@ -345,10 +362,23 @@ def pars_args():
         '-lp', "--LoadPath", type=str, default=None,
         help="Complete path to directory where to load stored computation"
     )
+    arguments.add_argument(
+        '-logp', "--LoggingPath", type=str, default="$HOME/Desktop/log_gan",
+        help="Complete path to directory where to load info"
+    )
     return arguments.parse_args()
 
 
 def main(args):
+    args.LoggingPath = os.path.expandvars(args.LoggingPath)
+    if not os.path.isdir(args.LoggingPath):
+        os.mkdir(args.LoggingPath)
+    logname = '/log_' + time.strftime('%m_%d_%Y_%I_%M_%S') + '_gan.log'
+    logpath = args.LoggingPath + logname
+    logging.basicConfig(filename=logpath,
+                        level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s: %(message)s',
+                        datefmt='%m/%d/%Y %I:%M:%S')
     g = GAN(
         data_path=args.DataPath,
         save_path=args.SavePath,
@@ -362,8 +392,11 @@ def main(args):
             learning_rate=args.LearningRate
         )
     else:
-        noise = T.matrix('noise')
-        g.generate_images(noise)
+        #indexes = np.random.randint(0, 80000, 10)
+        indexes = np.arange(0, 10)
+        g.generate_images(indexes=indexes)
+    indexes = np.arange(0, 10)
+    g.generate_images(indexes=indexes)
 
     return
 
