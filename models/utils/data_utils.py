@@ -13,8 +13,8 @@ import numpy as np
 import PIL.Image as Image
 
 # Try to import cpickle
-# import six.moves.cPickle as pickle
-import _pickle as pickle
+import six.moves.cPickle as pickle
+# import _pickle as pickle
 
 def verify_archive(dataset):
     """
@@ -229,30 +229,6 @@ def load_data_to_ram(length, dic, prefixes, data_path):
             j = 0
 
 
-def minibatch_dic_iterator(dic, batch_size, prefixes, data_path):
-
-    assert len(dic) > 0
-    i = None
-    keys = dic.keys()
-    pref0 = data_path + prefixes[0]
-    pref1 = data_path + prefixes[1]
-    for i in range(0, len(keys) - batch_size + 1, batch_size):
-        batch = range(i, i + batch_size)
-        input = [pref0 + dic.get(key) + '.jpg' for key in batch]
-        target = [pref1 + dic.get(key) + '.jpg' for key in batch]
-        yield load_data(input, (64, 64)), load_data(target, (64, 64))
-    # Make sure that all the dataset is passed
-    # even if it is less then a full batch_size
-    if i is None:
-        i = 0
-    # Fetch the last data from the dataset
-    if i < len(dic):
-        batch = range(i, len(dic))
-        input = [pref0 + dic.get(key) + '.jpg' for key in batch]
-        target = [pref1 + dic.get(key) + '.jpg' for key in batch]
-        yield load_data(input, (64, 64)), load_data(target, (64, 64))
-
-
 def minibatch_iterator(x, y, batch_size):
     """
     Iterator on a minibatch.
@@ -276,25 +252,3 @@ def minibatch_iterator(x, y, batch_size):
         batch = slice(i, len(x))
         yield x[batch], y[batch]
 
-
-def input_iterator(x, batch_size):
-    """
-    Iterator on an input data.
-
-    :param x: Input data to fetch
-    :param batch_size: Size of a batch
-    :return: Array of data
-    """
-
-    i = None
-    for i in range(0, len(x) - batch_size + 1, batch_size):
-        batch = slice(i, i + batch_size)
-        yield load_data(x[batch], (64, 64))
-    # Make sure that all the dataset is passed
-    # even if it is less then a full batch_size
-    if i is None:
-        i = 0
-    # Fetch the last data from the dataset
-    if i < len(x):
-        batch = slice(i, len(x))
-        yield load_data(x[batch], (64, 64))
