@@ -188,24 +188,25 @@ def load_data(list_of_images, size):
     :return: Numpy array containing the batch of data in the form
         [ batch, channels, height, width ]
     """
-    ret = np.zeros([len(list_of_images), 3, size[0], size[1]])
+    ret = np.zeros([len(list_of_images), size[0], size[1], 3])
 
     for i, file in enumerate(list_of_images):
         # Load image
         img = Image.open(file)
         img = np.asarray(img, dtype='float32')
-        img = img.reshape(3, size[0], size[1])
-        ret[i] = img / 255
+        # img = img.transpose((2, 0, 1))
+        # img = img.reshape(3, size[0], size[1])
+        ret[i] = img
 
-    return ret
+    return ret.transpose((0, 3, 1, 2)) / 255
 
 
 def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]):
     l = min(length, len(dic))
     size1 = size[0]
     size2 = size[1]
-    input_array = np.zeros((l, 3, size1[0], size1[1]))
-    target_array = np.zeros((l, 3, size2[0], size2[1]))
+    input_array = np.zeros((l, size1[0], size1[1], 3))
+    target_array = np.zeros((l, size2[0], size2[1], 3))
     input = data_path + prefixes[0]
     target = data_path + prefixes[1]
     j = 0
@@ -213,22 +214,27 @@ def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]
         name = dic[i] + '.jpg'
         img = Image.open(input + name)
         img = np.asarray(img, dtype='float32')
-        img = img.reshape(3, size1[0], size1[1])
-        input_array[j] = img / 255
+        # img = img.transpose(2, 0, 1)
+        # img = img.reshape(3, size1[0], size1[1])
+        # input_array[j] = img / 255
+        input_array[j] = img
 
         img = Image.open(target + name)
         img = np.asarray(img, dtype='float32')
-        img = img.reshape(3, size2[0], size2[1])
-        target_array[j] = img / 255
+        # img = img.reshape(3, size2[0], size2[1])
+        # target_array[j] = img / 255
+        target_array[j] = img
         j += 1
 
         if (j == length) | (i == len(dic) - 1):
+            input_array = input_array.transpose((0, 3, 1, 2)) / 255
+            target_array = target_array.transpose((0, 3, 1, 2)) / 255
             yield input_array, target_array
             l = min(length, len(dic) - i)
             input_array = np.zeros((l, 3, size1[0], size1[1]))
             target_array = np.zeros((l, 3, size2[0], size2[1]))
-            input = data_path + prefixes[0]
-            target = data_path + prefixes[1]
+            # input = data_path + prefixes[0]
+            # target = data_path + prefixes[1]
             j = 0
 
 

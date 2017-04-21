@@ -25,10 +25,9 @@ def add_noize(input):
         int(np.floor(input.shape[3] / 2.))
     )
     for i in range(input.shape[0]):
-        for j in range(input.shape[1]):
-            input[i, j,
-            center[0] - 16: center[0] + 16,
-            center[1] - 16: center[1] + 16] = np.random.random((32, 32))
+        input[i, :,
+        center[0] - 16: center[0] + 16,
+        center[1] - 16: center[1] + 16] = (np.random.random((3, 32, 32)) + 1) / 100
 
     return input
 
@@ -204,10 +203,11 @@ class GAN(object):
         data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
         data = add_noize(data)
         samples = gen_fn(lasagne.utils.floatX(data))
-
+        samples = samples.transpose((0, 2, 3, 1))
         for img in samples:
-            img *= 255
-            img = img.reshape(32, 32, 3)
+            img = img * 255
+            img = np.rint(img).astype(np.int32)
+            img = np.clip(img, 0, 255)
             img = img.astype(np.uint8)
             img = Image.fromarray(img)
             img.show()
@@ -254,18 +254,18 @@ class GAN(object):
         dis_params = lasagne.layers.get_all_params(dis, trainable=True)
 
         updates_dis = lasagne.updates.adam(
-            dis_cost, dis_params, learning_rate=shrd_lr, beta1=0.8, beta2=0.9
+            dis_cost, dis_params, learning_rate=shrd_lr, beta1=0.5, beta2=0.6
         )
 
         enc_gen_params = lasagne.layers.get_all_params([enc, gen], trainable=True)
         updates_gen = lasagne.updates.adam(
-            gen_cost, enc_gen_params, learning_rate=shrd_lr, beta1=0.8, beta2=0.9
+            gen_cost, enc_gen_params, learning_rate=shrd_lr, beta1=0.5, beta2=0.6
         )
 
         eshrd_lr = theano.shared(lasagne.utils.floatX(0.002))
         enc_dec_params = lasagne.layers.get_all_params(enc, trainable=True)
         updates_enc = lasagne.updates.adam(
-            enc_cost, enc_dec_params, learning_rate=eshrd_lr, beta1=0.8, beta2=0.9
+            enc_cost, enc_dec_params, learning_rate=eshrd_lr, beta1=0.5, beta2=0.6
         )
 
         logging.info("Compiling function")
@@ -286,10 +286,10 @@ class GAN(object):
             updates=updates_enc
         )
 
-        g_costs = []
-        d_costs = []
-        e_costs = []
-        upd = 0
+        # g_costs = []
+        # d_costs = []
+        # e_costs = []
+        # upd = 0
         logging.info("Beginning Training")
         # Training loop
         for e in range(epochs):
@@ -312,20 +312,20 @@ class GAN(object):
                     cost_d = train_dis_fn(inputs, targets)
                     cost_e = train_enc_fn(inputs, targets)
 
-                    g_costs.append(cost_g)
-                    d_costs.append(cost_d)
-                    e_costs.append(cost_e)
+                    # g_costs.append(cost_g)
+                    # d_costs.append(cost_d)
+                    # e_costs.append(cost_e)
 
-                    logging.info("Epoch {} of {}, elapsed time: {:.3f} minutes".format(
-                        e + 1, epochs, (time.time() - tic)/60
-                    ))
+            logging.info("Epoch {} of {}, elapsed time: {:.3f} minutes".format(
+                e + 1, epochs, (time.time() - tic)/60
+            ))
 
-                    logging.info("Generator error: {}, Discriminator error: {}, Encoder error: {}".format(
-                        cost_g, cost_d, cost_e
-                    ))
+            logging.info("Generator error: {}, Discriminator error: {}, Encoder error: {}".format(
+                cost_g, cost_d, cost_e
+            ))
 
-                    shrd_lr.set_value(lasagne.utils.floatX(shrd_lr.get_value() * 0.95))
-                    # upd += 1
+            shrd_lr.set_value(lasagne.utils.floatX(shrd_lr.get_value() * 0.95))
+            # upd += 1
 
             np.savez(self.save_path + '/GAN2_gen.npz', *lasagne.layers.get_all_param_values(gen))
             np.savez(self.save_path + '/GAN2_disc.npz', *lasagne.layers.get_all_param_values(dis))
@@ -402,8 +402,8 @@ def main(args):
             batch_size=args.BatchSize,
             learning_rate=args.LearningRate
         )
-        indexes = np.arange(0, 10)
-        g.generate_images(indexes=indexes)
+        # indexes = np.arange(0, 10)
+        # g.generate_images(indexes=indexes)
     else:
         logname = '/Generation_' + post
         create_logging(args.LoggingPath, logname)
