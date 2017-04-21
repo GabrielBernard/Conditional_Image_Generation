@@ -16,6 +16,7 @@ import PIL.Image as Image
 import six.moves.cPickle as pickle
 # import _pickle as pickle
 
+
 def verify_archive(dataset):
     """
     Verify that an archive of the datasets is present and
@@ -193,16 +194,18 @@ def load_data(list_of_images, size):
         # Load image
         img = Image.open(file)
         img = np.asarray(img, dtype='float32')
-        img = img.transpose(2, 0, 1).reshape(3, size[0], size[1])
+        img = img.reshape(3, size[0], size[1])
         ret[i] = img / 255
 
     return ret
 
 
-def load_data_to_ram(length, dic, prefixes, data_path):
+def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]):
     l = min(length, len(dic))
-    input_array = np.zeros((l, 3, 64, 64))
-    target_array = np.zeros((l, 3, 64, 64))
+    size1 = size[0]
+    size2 = size[1]
+    input_array = np.zeros((l, 3, size1[0], size1[1]))
+    target_array = np.zeros((l, 3, size2[0], size2[1]))
     input = data_path + prefixes[0]
     target = data_path + prefixes[1]
     j = 0
@@ -210,20 +213,20 @@ def load_data_to_ram(length, dic, prefixes, data_path):
         name = dic[i] + '.jpg'
         img = Image.open(input + name)
         img = np.asarray(img, dtype='float32')
-        img = img.reshape(3, 64, 64)
+        img = img.reshape(3, size1[0], size1[1])
         input_array[j] = img / 255
 
         img = Image.open(target + name)
         img = np.asarray(img, dtype='float32')
-        img = img.reshape(3, 64, 64)
+        img = img.reshape(3, size2[0], size2[1])
         target_array[j] = img / 255
         j += 1
 
         if (j == length) | (i == len(dic) - 1):
             yield input_array, target_array
             l = min(length, len(dic) - i)
-            input_array = np.zeros((l, 3, 64, 64))
-            target_array = np.zeros((l, 3, 64, 64))
+            input_array = np.zeros((l, 3, size1[0], size1[1]))
+            target_array = np.zeros((l, 3, size2[0], size2[1]))
             input = data_path + prefixes[0]
             target = data_path + prefixes[1]
             j = 0
