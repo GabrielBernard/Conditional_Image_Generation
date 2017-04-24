@@ -198,7 +198,7 @@ def load_data(list_of_images, size):
         # img = img.reshape(3, size[0], size[1])
         ret[i] = img
 
-    return ret.transpose((0, 3, 1, 2)) / 255
+    return ret.transpose((0, 3, 1, 2)) / 127.5 - 1
 
 
 def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]):
@@ -227,12 +227,12 @@ def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]
         j += 1
 
         if (j == length) | (i == len(dic) - 1):
-            input_array = input_array.transpose((0, 3, 1, 2)) / 255
-            target_array = target_array.transpose((0, 3, 1, 2)) / 255
+            input_array = input_array.transpose((0, 3, 1, 2)) / 127.5 - 1
+            target_array = target_array.transpose((0, 3, 1, 2)) / 127.5 - 1
             yield input_array, target_array
             l = min(length, len(dic) - i)
-            input_array = np.zeros((l, 3, size1[0], size1[1]))
-            target_array = np.zeros((l, 3, size2[0], size2[1]))
+            input_array = np.zeros((l, size1[0], size1[1], 3))
+            target_array = np.zeros((l, size2[0], size2[1], 3))
             # input = data_path + prefixes[0]
             # target = data_path + prefixes[1]
             j = 0

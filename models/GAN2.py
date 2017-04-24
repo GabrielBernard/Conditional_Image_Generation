@@ -128,13 +128,13 @@ def discriminator(input_var=None):
     # 256 units of 8 x 8
     net = batch_norm(Conv2DLayer(net, 256, 2, stride=2, nonlinearity=lrelu))
     # 512 units of 4 x 4
-    # net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
+    net = batch_norm(Conv2DLayer(net, 512, 2, stride=2, nonlinearity=lrelu))
     # 512 units of 8 x 8
-    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1, nonlinearity=lrelu))
     # 1024 units of 4 x 4
-    # net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
+    # net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2, nonlinearity=lrelu))
     # Fully connected layers
-    net = batch_norm(DenseLayer(net, 256, nonlinearity=lrelu))
+    net = batch_norm(DenseLayer(net, 512, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
 
     logging.info("Discriminator output shape : {}".format( net.output_shape))
@@ -144,8 +144,8 @@ def discriminator(input_var=None):
 
 def set_params(net, param_file):
     with np.load(param_file) as f:
-        gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    lasagne.layers.set_all_param_values(net, gen_param_values)
+        net_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(net, net_param_values)
     return net
 
 
@@ -185,7 +185,9 @@ class GAN(object):
         x = T.tensor4('x')
         #x = x.reshape((128, 3, 64, 64))
         enc = image_encoder(x)
-        enc = set_params(enc, self.load_params + '/GAN2_enc.npz')
+        with np.load(self.load_params + '/GAN2_enc.npz') as f:
+            enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(enc, enc_param_values)
 
         gen = generator(net=enc)
 
@@ -201,11 +203,23 @@ class GAN(object):
         logging.info("Generate Image")
         list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
         data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
-        data = add_noize(data)
+        # data = add_noize(data)
         samples = gen_fn(lasagne.utils.floatX(data))
+
+        center = (
+            int(np.floor(data.shape[2] / 2.)),
+            int(np.floor(data.shape[3] / 2.))
+        )
+
+        data = data.transpose((0, 2, 3, 1))
         samples = samples.transpose((0, 2, 3, 1))
-        for img in samples:
-            img = img * 255
+        for index, inner in enumerate(samples):
+            img = data[index]
+            img[
+                center[0] - 16: center[0] + 16,
+                center[1] - 16: center[1] + 16, :
+            ] = inner
+            img = (img + 1) * 127.5
             img = np.rint(img).astype(np.int32)
             img = np.clip(img, 0, 255)
             img = img.astype(np.uint8)
@@ -277,7 +291,7 @@ class GAN(object):
         )
         train_dis_fn = theano.function(
             [x, y],
-            dis_cost_real,
+            dis_cost,
             updates=updates_dis
         )
         train_enc_fn = theano.function(
@@ -402,8 +416,8 @@ def main(args):
             batch_size=args.BatchSize,
             learning_rate=args.LearningRate
         )
-        # indexes = np.arange(0, 10)
-        # g.generate_images(indexes=indexes)
+        indexes = np.arange(0, 10)
+        g.generate_images(indexes=indexes)
     else:
         logname = '/Generation_' + post
         create_logging(args.LoggingPath, logname)
