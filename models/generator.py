@@ -128,6 +128,61 @@ def create_logging(LoggingPath, logname):
                         datefmt='%m/%d/%Y %H:%M:%S')
 
 
+def generate_images(dic, indexes, data_path, load_path):
+    pre = data_path + '/input_'
+    print("Creating theano variables")
+    x = T.tensor4('x')
+    z = T.matrix('z')
+
+    enc = image_encoder()
+    with np.load(load_path + '/GAN3_enc.npz') as f:
+        enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(enc, enc_param_values)
+
+    gen = generator(z)
+    with np.load(load_path + '/GAN3_gen.npz') as f:
+        gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(gen, gen_param_values)
+
+    print("Building theano functions")
+    encode_fn = theano.function(
+        [x],
+        lasagne.layers.get_output(enc, x)
+    )
+
+    gen_fn = theano.function(
+        [z],
+        lasagne.layers.get_output(gen, z)
+    )
+
+    print("Fetching data")
+    list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
+    data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
+    samples = gen_fn(lasagne.utils.floatX(data))
+
+    center = (
+        int(np.floor(data.shape[2] / 2.)),
+        int(np.floor(data.shape[3] / 2.))
+    )
+
+    data = data.transpose((0, 2, 3, 1))
+    samples = samples.transpose((0, 2, 3, 1))
+    for index, inner in enumerate(samples):
+        img = data[index]
+        img[
+        center[0] - 16: center[0] + 16,
+        center[1] - 16: center[1] + 16, :
+        ] = inner
+        img = (img + 1) * 127.5
+        img = np.rint(img).astype(np.int32)
+        img = np.clip(img, 0, 255)
+        img = img.astype(np.uint8)
+        img = Image.fromarray(img)
+        img.show()
+
+    print("End of Generation")
+
+
 def main(args):
     args.LoggingPath = os.path.expandvars(args.LoggingPath)
     post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan3.log'
@@ -144,12 +199,22 @@ def main(args):
     dic = {key: dic[key] for key in index}
     prefixes = ['/input_', '/target_']
 
+    if args.train == 0:
+        indexes = np.random.randint(0, len(dic), 10)
+        generate_images(
+            dic=dic,
+            indexes=indexes,
+            data_path=args.DataPath,
+            load_path=args.LoadPath
+        )
+        exit(0)
+
     x = T.tensor4('x')
     y = T.tensor4('y')
     z = T.matrix('z')
 
     logging.info("Generating networks")
-    encoder = image_encoder()
+    encoder = image_encoder(x)
     decoder = image_decoder()
 
     gen = generator(z)
@@ -204,6 +269,7 @@ def main(args):
          dis_cost],
         updates=updates
     )
+
     gen_updates = lasagne.updates.adam(
         gen_cost_dis, gen_params, learning_rate=0.0002
     )
@@ -221,8 +287,10 @@ def main(args):
     # )
 
     train_gen_fn = theano.function(
-        [z],
-        gen_cost_dis,
+        [y, z],
+        [(real > 0.5).mean(),
+         (fake < 0.5).mean(),
+         dis_cost],
         updates=gen_updates
     )
 
@@ -269,11 +337,11 @@ def main(args):
     # noise = np.random.normal(0, 1, (len(dic), 100)).astype(np.float32)
     logging.info("Training")
     for epoch in range(args.epochs):
-        gen_loss = 0
-        dis_loss = 0
+        train_both = True
+        train_only_gen = False
         ind = 0
         it = 1
-        loss = 0
+        loss = 0.
         for data in data_utils.load_data_to_ram(
                 length=10 * batch_size,
                 dic=dic,
@@ -288,38 +356,34 @@ def main(args):
                 targets = targets.astype(np.float32)
 
                 # n = noise[ind:ind + min(targets.shape[0], len(dic) - ind)]
-                train_encode(inputs)
+                # train_encode(inputs)
                 n = encode_fn(inputs)
-                loss += np.array(train_fn(targets, n))
+                if train_both:
+                    loss += np.array(train_fn(targets, n))
+                elif train_only_gen:
+                    loss += np.array(train_gen_fn(targets, n))
                 ind += min(batch_size, len(dic) - ind)
-                logging.info("Loss : {}".format(loss / it))
+                # logging.info("Loss : {}".format(loss / it))
+                if it % 1000 == 0:
+                    logging.info("Loss : {}".format(loss / it))
+
                 # tmp = 0
                 # br = True
-                # tmp_dis_loss = dis_loss / it
-                # while ((gen_loss / it) < tmp_dis_loss) and br:
-                #     train_dis_real(targets)
-                #     train_dis_fake(noise)
-                #     tmp_dis_loss = train_dis_fn(targets, noise)
-                #     tmp += 1
-                #     if (tmp > 100):
-                #         print("Too long")
-                #         br = False
+                tmp_loss_gen = loss[0] / it
+                tmp_loss_dis = loss[2] / it
+                if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
+                    train_both = False
+                    train_only_gen = True
+                elif tmp_loss_gen > 0.48 or tmp_loss_dis < 0.45:
+                    train_both = True
+                    train_only_gen = False
 
-                # if (it % 2) == 0:
-                # for rep in range(3):
-                #     train_gen_fn(noise)
-                # dis_loss += train_dis_fn(targets, noise)
-                # gen_loss += train_gen_fn(noise)
-                # else:
-
-                # print("Dis loss:", dis_loss / it)
-                # print("Gen loss:", gen_loss/it)
                 it += 1
 
         np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
         np.savez(args.SavePath + '/GAN3_disc.npz', *lasagne.layers.get_all_param_values(dis))
-        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_params(encoder))
-        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_params(decoder))
+        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_params_values(encoder))
+        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_params_values(decoder))
 
     # print("Testing")
     # index = np.random.randint(0, len(inputs), 10)
