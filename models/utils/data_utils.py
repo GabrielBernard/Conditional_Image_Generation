@@ -226,11 +226,11 @@ def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]
         target_array[j] = img
         j += 1
 
-        if (j == length) | (i == len(dic) - 1):
+        if (j == l) | (i == len(dic) - 1):
             input_array = input_array.transpose((0, 3, 1, 2)) / 127.5 - 1
             target_array = target_array.transpose((0, 3, 1, 2)) / 127.5 - 1
             yield input_array, target_array
-            l = min(length, len(dic) - i)
+            l = np.floor(min(length, len(dic) - i)).astype(np.int)
             input_array = np.zeros((l, size1[0], size1[1], 3))
             target_array = np.zeros((l, size2[0], size2[1], 3))
             # input = data_path + prefixes[0]
@@ -257,7 +257,10 @@ def minibatch_iterator(x, y, batch_size):
     if i is None:
         i = 0
     # Fetch the last data from the dataset
-    if i < len(x):
+    if len(x) - batch_size < 0:
         batch = slice(i, len(x))
         yield x[batch], y[batch]
 
+    if i + batch_size < len(x):
+        batch = slice(i + batch_size, len(x) - 1)
+        yield x[batch], y[batch]
