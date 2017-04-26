@@ -158,7 +158,7 @@ def generate_images(dic, indexes, data_path, load_path):
     print("Fetching data")
     list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
     data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
-    samples = gen_fn(lasagne.utils.floatX(data))
+    samples = gen_fn(encode_fn(lasagne.utils.floatX(data)).astype(np.float32))
 
     center = (
         int(np.floor(data.shape[2] / 2.)),
@@ -192,11 +192,13 @@ def main(args):
     if not os.path.isdir(args.LoggingPath):
         os.mkdir(args.LoggingPath)
 
+    np.random.seed(args.Seed)
+    
     logging.info("Loading dictionnary")
     batch_size = args.BatchSize
     dic = pickle.load(open(args.DataPath + '/data.pkl', 'rb'))
-    index = np.arange(0, np.round(len(dic)/100))
-    dic = {key: dic[key] for key in index}
+    # index = np.arange(0, np.round(len(dic)/10/2))
+    # dic = {key: dic[key] for key in index}
     prefixes = ['/input_', '/target_']
 
     if args.train == 0:
@@ -248,9 +250,9 @@ def main(args):
 
     dis_cost = dis_cost.mean()
 
-    # dis_cost_real = lasagne.objectives.binary_crossentropy(real, 1).mean()
+    dis_cost_real = lasagne.objectives.binary_crossentropy(real, 1).mean()
 
-    # dis_cost_fake = lasagne.objectives.binary_crossentropy(fake, 0).mean()
+    dis_cost_fake = lasagne.objectives.binary_crossentropy(fake, 0).mean()
 
     logging.info("Building functions")
 
@@ -270,21 +272,23 @@ def main(args):
         updates=updates
     )
 
+    gen_cost = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
+
     gen_updates = lasagne.updates.adam(
-        gen_cost_dis, gen_params, learning_rate=0.0002
+        gen_cost, gen_params, learning_rate=0.0002
     )
 
     # dis_updates = lasagne.updates.adam(
     #     dis_cost, dis_params, learning_rate=0.0002
     # )
 
-    # dis_updates_real = lasagne.updates.adam(
-    #     dis_cost_real, dis_params, learning_rate=0.0002
-    # )
+    dis_updates_real = lasagne.updates.adam(
+        dis_cost_real, dis_params, learning_rate=0.0002
+    )
 
-    # dis_updates_fake = lasagne.updates.adam(
-    #     dis_cost_fake, dis_params, learning_rate=0.0002
-    # )
+    dis_updates_fake = lasagne.updates.adam(
+        dis_cost_fake, dis_params, learning_rate=0.0002
+    )
 
     train_gen_fn = theano.function(
         [y, z],
@@ -299,18 +303,22 @@ def main(args):
     #     dis_cost,
     #     updates=dis_updates
     # )
-    #
-    # train_dis_real = theano.function(
-    #     [y],
-    #     dis_cost_real,
-    #     updates=dis_updates_real
-    # )
-    #
-    # train_dis_fake = theano.function(
-    #     [z],
-    #     dis_cost_fake,
-    #     updates=dis_updates_fake
-    # )
+
+    train_dis_real = theano.function(
+        [y, z],
+        [(real > 0.5).mean(),
+         (fake < 0.5).mean(),
+         dis_cost],
+        updates=dis_updates_real
+    )
+
+    train_dis_fake = theano.function(
+        [y, z],
+        [(real > 0.5).mean(),
+         (fake < 0.5).mean(),
+         dis_cost],
+        updates=dis_updates_fake
+    )
 
     encode_fn = theano.function(
         [x],
@@ -323,18 +331,16 @@ def main(args):
         updates=encode_decode_updates
     )
 
-    gen_pred_fn = theano.function(
-        [z],
-        lasagne.layers.get_output(gen, z, deterministic=True)
-    )
+    # gen_pred_fn = theano.function(
+    #     [z],
+    #     lasagne.layers.get_output(gen, z, deterministic=True)
+    # )
+    #
+    # dis_pred_fn = theano.function(
+    #     [y],
+    #     lasagne.layers.get_output(dis, y, deterministic=True)
+    # )
 
-    dis_pred_fn = theano.function(
-        [y],
-        lasagne.layers.get_output(dis, y, deterministic=True)
-    )
-
-    np.random.seed(34)
-    # noise = np.random.normal(0, 1, (len(dic), 100)).astype(np.float32)
     logging.info("Training")
     for epoch in range(args.epochs):
         train_both = True
@@ -356,34 +362,47 @@ def main(args):
                 targets = targets.astype(np.float32)
 
                 # n = noise[ind:ind + min(targets.shape[0], len(dic) - ind)]
-                # train_encode(inputs)
+                train_encode(inputs)
                 n = encode_fn(inputs)
                 if train_both:
                     loss += np.array(train_fn(targets, n))
+                    loss += np.array(train_gen_fn(targets, n))
                 elif train_only_gen:
                     loss += np.array(train_gen_fn(targets, n))
+                elif not train_only_gen:
+                    if (it % 2) == 0:
+                        loss += np.array(train_dis_real(targets, n))
+                    else:
+                        loss += np.array(train_dis_fake(targets, n))
+
+                # if boolean[np.random.randint(0, 1)]:
+                #     loss += np.array(train_gen_fn(targets, n))
+
                 ind += min(batch_size, len(dic) - ind)
                 # logging.info("Loss : {}".format(loss / it))
-                if it % 1000 == 0:
+                if (it % 250) == 0:
                     logging.info("Loss : {}".format(loss / it))
 
                 # tmp = 0
                 # br = True
                 tmp_loss_gen = loss[0] / it
-                tmp_loss_dis = loss[2] / it
+                tmp_loss_dis = loss[1] / it
                 if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
                     train_both = False
                     train_only_gen = True
                 elif tmp_loss_gen > 0.48 or tmp_loss_dis < 0.45:
                     train_both = True
                     train_only_gen = False
+                elif tmp_loss_gen > 0.6 or tmp_loss_dis < 0.45:
+                    train_both = False
+                    train_only_gen = False
 
                 it += 1
 
         np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
         np.savez(args.SavePath + '/GAN3_disc.npz', *lasagne.layers.get_all_param_values(dis))
-        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_params_values(encoder))
-        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_params_values(decoder))
+        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
+        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
 
     # print("Testing")
     # index = np.random.randint(0, len(inputs), 10)
@@ -424,7 +443,7 @@ def main(args):
 def pars_args():
     arguments = argparse.ArgumentParser()
     arguments.add_argument(
-        '-s', '--seed', type=int, default=1,
+        '-s', '--seed', type=int, default=32,
         help="Seed for the random number generator"
     )
     arguments.add_argument(
@@ -466,4 +485,3 @@ def pars_args():
 
 if __name__ == "__main__":
     main(pars_args())
-
