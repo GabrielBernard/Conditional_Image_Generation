@@ -39,5 +39,5 @@ exclude:
 pandoc:
   extensions:
     - normalize
-    - csl: _styles/apa.cls
+    - smart
     - bibliography: bibliography/bibliography.bib
