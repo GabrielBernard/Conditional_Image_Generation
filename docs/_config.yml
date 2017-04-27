@@ -15,18 +15,29 @@
 # in the templates via {{ site.myvariable }}.
 title: Conditional Image Generation
 description: > # ignore new line until baseurl:
-  In this project we try to reconstruct the inner part 
-  of an image given the outer part of it and a sentence 
-  that describes the image. The inner part that must be 
-  reconstructed is a square of 32x32 pixels and the total 
+  In this project we try to reconstruct the inner part
+  of an image given the outer part of it and a sentence
+  that describes the image. The inner part that must be
+  reconstructed is a square of 32x32 pixels and the total
   image size is 64x64 pixels.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  GabrielBernard
 
+# gems
+gems:
+  - jekyll-pandoc
 # Build settings
-markdown: kramdown
+# markdown: kramdown
+markdown: Pandoc
 theme: minima
 exclude:
   - Gemfile
   - Gemfile.lock
+
+# Pandoc options
+pandoc:
+  extensions:
+    - normalize
+    - csl: _styles/apa.cls
+    - bibliography: bibliography/bibliography.bib
