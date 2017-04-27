@@ -239,12 +239,12 @@ def main(args):
         log = True
 
     np.random.seed(args.seed)
-
     log_fn("Loading dictionnary")
     batch_size = args.BatchSize
     dic = pickle.load(open(args.DataPath + '/data.pkl', 'rb'))
-    # index = np.arange(0, np.round(len(dic)/100))
-    # dic = {key: dic[key] for key in index}
+    index = np.arange(0, np.round(len(dic)/1000))
+    dic = {key: dic[key] for key in index}
+    log_fn("Dictionnary length {}".format(len(dic)))
     prefixes = ['/input_', '/target_']
 
     if args.train == 0:
@@ -296,25 +296,30 @@ def main(args):
     dis_cost_real = lasagne.objectives.binary_crossentropy(real, 1).mean()
     dis_cost_fake = lasagne.objectives.binary_crossentropy(fake, 0).mean()
 
+    square_error = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
     log_fn("Building functions")
 
     updates = lasagne.updates.adam(
-        gen_cost_dis, gen_params, learning_rate=0.0002, beta1=0.5
-    )
-
-    updates.update(lasagne.updates.adam(
         dis_cost, dis_params, learning_rate=0.0002, beta1=0.5
-    ))
+    )
+    # updates = lasagne.updates.adam(
+    #     gen_cost_dis, gen_params, learning_rate=0.0002, beta1=0.5
+    # )
+
+    # updates.update(lasagne.updates.adam(
+    #     dis_cost, dis_params, learning_rate=0.0002, beta1=0.5
+    # ))
 
     train_fn = theano.function(
         [y, z],
         [(real > 0.5).mean(),
          (fake < 0.5).mean(),
-         dis_cost],
+         square_error],
         updates=updates
     )
 
-    gen_cost = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
+    # gen_cost = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
+    gen_cost = lasagne.objectives.binary_crossentropy(fake, 1).mean()
 
     gen_updates = lasagne.updates.adam(
         gen_cost, gen_params, learning_rate=0.0002
@@ -332,7 +337,7 @@ def main(args):
         [y, z],
         [(real > 0.5).mean(),
          (fake < 0.5).mean(),
-         dis_cost],
+         square_error],
         updates=gen_updates
     )
 
@@ -340,7 +345,7 @@ def main(args):
         [y, z],
         [(real > 0.5).mean(),
          (fake < 0.5).mean(),
-         dis_cost],
+         square_error],
         updates=dis_updates_real
     )
 
@@ -348,7 +353,7 @@ def main(args):
         [y, z],
         [(real > 0.5).mean(),
          (fake < 0.5).mean(),
-         dis_cost],
+         square_error],
         updates=dis_updates_fake
     )
 
@@ -363,7 +368,47 @@ def main(args):
         updates=encode_decode_updates
     )
 
-    log_fn("Training")
+    log_fn("Training_encoder")
+    num_iter = np.round((len(dic) - 1)/ batch_size)
+    for epoch in range(2):
+        # train_both = True
+        train_gen = True
+        ind = 0
+        it = 1
+        loss = 0.
+        for data in data_utils.load_data_to_ram(
+                length=10 * batch_size,
+                dic=dic,
+                prefixes=prefixes,
+                data_path=args.DataPath,
+                size=[(64, 64), (32, 32)]
+        ):
+            for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+                inputs, targets = batch
+                inputs = add_noize(inputs)
+                inputs = inputs.astype(np.float32)
+                targets = targets.astype(np.float32)
+
+                loss += train_encode(inputs)
+                if (it % 250) == 0:
+                    log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
+                        epoch, args.epochs - 1,
+                        it - 1, num_iter, loss / it)
+                    )
+
+                it += 1
+
+        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
+        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
+
+    decoder = None
+    decode = None
+    decode_params = None
+    encode_decode_updates = None
+    encode_decode_cost = None
+    train_encode = None
+
+    log_fn("Training GAN")
     for epoch in range(args.epochs):
         # train_both = True
         train_gen = True
@@ -383,21 +428,27 @@ def main(args):
                 inputs = inputs.astype(np.float32)
                 targets = targets.astype(np.float32)
 
-                train_encode(inputs)
                 n = encode_fn(inputs)
                 tmp_loss = np.array(train_fn(targets, n))
-                if epoch == 0 and train_gen:
-                    tmp_loss = np.array(train_gen_fn(targets, n))
-
+                tmp_loss = np.array(train_gen_fn(targets, n))
                 loss += tmp_loss
-                ind += min(batch_size, len(dic) - ind)
-                if (it % 5) == 0:
-                    log_fn("Epoch: {} of {}, Loss : {}".format(epoch, args.epochs - 1,  loss / it))
+                # if epoch == 0 and train_gen:
+                #     tmp_loss = np.array(train_gen_fn(targets, n))
+
+                # loss += tmp_loss
+                # ind += min(batch_size, len(dic) - ind)
+                if (it % 250) == 0:
+                    log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
+                        epoch, args.epochs - 1,
+                        it - 1, num_iter, loss / it)
+                    )
 
                 mean_real = loss[0] / it
                 mean_fake = loss[1] / it
                 if mean_real < 0.42 or mean_fake > 0.58:
                     train_gen = False
+                    train_dis_real(targets, z)
+                    train_dis_fake(targets, z)
                 # if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
                 #     train_both = False
                 #     train_only_gen = True
@@ -415,8 +466,6 @@ def main(args):
 
         np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
         np.savez(args.SavePath + '/GAN3_disc.npz', *lasagne.layers.get_all_param_values(dis))
-        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
-        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
 
     log_fn("End")
     return 0
