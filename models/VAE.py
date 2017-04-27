@@ -88,6 +88,13 @@ def image_decoder(net=None, input_var=None):
     return net
 
 
+def set_params(net, param_file):
+    with np.load(param_file) as f:
+        gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(net, gen_param_values)
+    return net
+
+
 class VAE(object):
     """
     
@@ -104,6 +111,39 @@ class VAE(object):
         self.load_file = load_file
 
         np.random.seed(seed)
+
+    def encode_decode(self, indexes):
+        dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
+        pre = self.data_path + '/input_'
+
+        logging.info("Building the generator")
+        x = T.tensor4('x')
+        encoder = image_encoder(x)
+
+        # z = T.matrix('z')
+        decoder = image_decoder(encoder)
+
+        set_params(encoder, self.load_file + '/encoder.npz')
+        set_params(decoder, self.load_file + '/decoder.npz')
+
+        output = lasagne.layers.get_output(decoder, x)
+
+        encode_decode_fn = theano.function(
+            [x],
+            output
+        )
+
+        list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
+        data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
+
+        samples = encode_decode_fn(lasagne.utils.floatX(data))
+
+        for img in samples:
+            img *= 255
+            img = img.reshape(64, 64, 3)
+            img = img.astype(np.uint8)
+            img = Image.fromarray(img)
+            img.show()
 
     def train(self, epochs=10, batch_size=128, learning_rate=0.0001):
         """
@@ -261,9 +301,9 @@ def main(args):
     else:
         logname = '/Generation_' + post
         create_logging(args.LoggingPath, logname)
-        #indexes = np.random.randint(0, 80000, 10)
-        indexes = np.arange(0, 10)
-        g.generate_images(indexes=indexes)
+        # indexes = np.random.randint(0, 80000, 50)
+        indexes = np.random.randint(0, 10, 10)  # arange(0, 10)
+        g.encode_decode(indexes=indexes)
 
     return
 

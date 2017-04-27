@@ -338,7 +338,7 @@ class GAN(object):
                 cost_g, cost_d, cost_e
             ))
 
-            shrd_lr.set_value(lasagne.utils.floatX(shrd_lr.get_value() * 0.95))
+            shrd_lr.set_value(lasagne.utils.floatX(shrd_lr.get_value() * 0.5))
             # upd += 1
 
             np.savez(self.save_path + '/GAN2_gen.npz', *lasagne.layers.get_all_param_values(gen))

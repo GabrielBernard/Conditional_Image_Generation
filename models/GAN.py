@@ -4,14 +4,16 @@ import theano.tensor as T
 import theano
 import lasagne
 from lasagne.layers import Conv2DLayer, DenseLayer, batch_norm, InputLayer, ReshapeLayer, Deconv2DLayer
-from lasagne.nonlinearities import sigmoid
-from lasagne.objectives import binary_crossentropy
+from lasagne.nonlinearities import sigmoid, rectify, leaky_rectify, tanh
+from lasagne.objectives import categorical_crossentropy
 import os
 import PIL.Image as Image
 import time
-import _pickle as pickle
+# import _pickle as pickle
 import logging
-# import six.moves.cPickle as pickle
+import six.moves.cPickle as pickle
+
+from VAE import image_encoder, set_params
 
 try:
     from models.utils import data_utils
@@ -32,55 +34,56 @@ from samples).
 """
 
 
-def image_encoder(input_var=None):
+# def image_encoder(input_var=None):
+#
+#     # Output size of convolution formula:
+#     # o = (i + 2p - k) / s + 1
+#     # Where o is the output size, i the input, p
+#     # the padding, k the kernel size and s the stride
+#
+#     tanh = lasagne.nonlinearities.tanh
+#     net = InputLayer(shape=(None, 3, 64, 64), input_var=input_var)
+#     # 128 units of 32 x 32
+#     net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
+#     # 256 units of 16 x 16
+#     net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
+#     # 512 units of 8 x 8
+#     net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
+#     # 1024 units of 4 x 4
+#     net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
+#     # Fully connected layer
+#     net = DenseLayer(net, 100, nonlinearity=tanh)
+#
+#     logging.info("Image encoder output shape: {}".format(net.output_shape))
+#     return net
 
-    # Output size of convolution formula:
-    # o = (i + 2p - k) / s + 1
-    # Where o is the output size, i the input, p
-    # the padding, k the kernel size and s the stride
 
-    tanh = lasagne.nonlinearities.tanh
-    net = InputLayer(shape=(None, 3, 64, 64), input_var=input_var)
-    # 128 units of 32 x 32
-    net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
-    # 256 units of 16 x 16
-    net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
-    # 512 units of 8 x 8
-    net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
-    # 1024 units of 4 x 4
-    net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
-    # Fully connected layer
-    net = DenseLayer(net, 100, nonlinearity=tanh)
-
-    logging.info("Image encoder output shape: {}".format( net.output_shape))
-    return net
-
-
-def generator(net):
+def generator(net=None, input_var=None):
     """
     Function that build the generator network
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
-    # net = InputLayer(shape=(None, 100), input_var=input_var)
+    if net is None:
+        net = InputLayer(shape=(None, 100), input_var=input_var)
     # net = batch_norm(DenseLayer(net, 1024))
     # Project
     net = batch_norm(DenseLayer(net, 1024*4*4))
     # Reshape
     net = ReshapeLayer(net, ([0], 1024, 4, 4))
     # 512 units of 8 x 8
-    net = batch_norm(Deconv2DLayer(net, 512, 2, stride=2))
-    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    net = batch_norm(Deconv2DLayer(net, 512, 2, stride=2, nonlinearity=rectify))
+    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1, nonlinearity=rectify))
     # 256 units of 16 x 16
-    net = batch_norm(Deconv2DLayer(net, 256, 9))
-    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
+    net = batch_norm(Deconv2DLayer(net, 256, 9, nonlinearity=rectify))
+    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1, nonlinearity=rectify))
     # 128 units of 16 x 16
-    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
+    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1, nonlinearity=rectify))
     # 64 units of 32 x 32
-    net = batch_norm(Deconv2DLayer(net, 64, 2, stride=2))
+    net = batch_norm(Deconv2DLayer(net, 64, 2, stride=2, nonlinearity=rectify))
     # 3 units of 64 x 64
-    net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=sigmoid)
+    net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=tanh)
 
-    logging.info("Generator output shape: {}".format( net.output_shape))
+    logging.info("Generator output shape: {}".format(net.output_shape))
     return net
 
 
@@ -89,81 +92,29 @@ def discriminator(input_var=None):
     Function that build the discriminator
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
-    lrelu = lasagne.nonlinearities.LeakyRectify()
+    lrelu = leaky_rectify
     net = InputLayer((None, 3, 64, 64), input_var=input_var)
     # 128 units of 32 x 32
-    net = batch_norm(Conv2DLayer(net, 128, 2, stride=2))
+    net = batch_norm(Conv2DLayer(net, 128, 2, stride=2, nonlinearity=lrelu))
     # 128 uints of 32 x 32
-    net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 128, 3, pad=1))
     # 256 units of 16 x 16
-    net = batch_norm(Conv2DLayer(net, 256, 2, stride=2))
+    net = batch_norm(Conv2DLayer(net, 256, 2, stride=2, nonlinearity=lrelu))
     # 256 units of 16 x 16
-    net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 256, 3, pad=1))
     # 512 units of 8 x 8
-    net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
+    # net = batch_norm(Conv2DLayer(net, 512, 2, stride=2))
     # 512 units of 8 x 8
-    net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
+    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1))
     # 1024 units of 4 x 4
-    net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
+    # net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2))
     # Fully connected layers
-    net = batch_norm(DenseLayer(net, 512, nonlinearity=lrelu))
+    net = batch_norm(DenseLayer(net, 256, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
-    # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
-    # net = batch_norm(Conv2DLayer(net, 64, 5, stride=2, pad=2, nonlinearity=lrelu))
-    # net = batch_norm(DenseLayer(net, 1024, nonlinearity=lrelu))
-    # net = DenseLayer(net, 1, nonlinearity=sigmoid)
+
     logging.info("Discriminator output shape : {}".format( net.output_shape))
 
     return net
-
-
-def minibatch_iterator(x, y, batch_size):
-    """
-    Iterator on a minibatch.
-
-    :param x: Input data to fetch
-    :param y: Target data to fetch
-    :param batch_size: Size of a batch
-    :return: Two arrays containing the input and target
-    """
-    load_data = data_utils.load_data
-    assert len(x) == len(y)
-    i = None
-    for i in range(0, len(x) - batch_size + 1, batch_size):
-        batch = slice(i, i + batch_size)
-        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
-    # Make sure that all the dataset is passed
-    # even if it is less then a full batch_size
-    if i is None:
-        i = 0
-    # Fetch the last data from the dataset
-    if i < len(x):
-        batch = slice(i, len(x))
-        yield load_data(x[batch], (64, 64)), load_data(y[batch], (64, 64))
-
-
-def input_iterator(x, batch_size):
-    """
-    Iterator on an input data.
-
-    :param x: Input data to fetch
-    :param batch_size: Size of a batch
-    :return: Array of data
-    """
-    load_data = data_utils.load_data
-
-    i = None
-    for i in range(0, len(x) - batch_size + 1, batch_size):
-        batch = slice(i, i + batch_size)
-        yield load_data(x[batch], (64, 64))
-    # Make sure that all the dataset is passed
-    # even if it is less then a full batch_size
-    if i is None:
-        i = 0
-    # Fetch the last data from the dataset
-    if i < len(x):
-        batch = slice(i, len(x))
-        yield load_data(x[batch], (64, 64))
 
 
 class GAN(object):
@@ -200,21 +151,31 @@ class GAN(object):
 
         logging.info("Building the generator")
         x = T.tensor4('x')
-        noise = image_encoder(x)
-        gen = generator(noise)
+        #x = x.reshape((128, 3, 64, 64))
+        encoder = image_encoder(x)
+        set_params(encoder, "/Users/Gabriel/PycharmProjects/Conditional_Image_Generation/models/tmp/encoder.npz")
+
+        z = T.matrix('z')
+        # z = z.reshape((128, 100))
+        gen = generator(None, z)
+
         with np.load(self.load_params + '/gan_gen.npz') as f:
             gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
         lasagne.layers.set_all_param_values(gen, gen_param_values)
 
         logging.info("Building the function")
-        gen_fn = theano.function(
+        z_fn = theano.function(
             [x],
+            outputs=lasagne.layers.get_output(encoder, deterministic=True)
+        )
+        gen_fn = theano.function(
+            [z],
             lasagne.layers.get_output(gen, deterministic=True)
         )
         logging.info("Generate Image")
         list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
         data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
-        samples = gen_fn(lasagne.utils.floatX(data))
+        samples = gen_fn(z_fn(lasagne.utils.floatX(data)))
 
         for img in samples:
             img *= 255
@@ -224,61 +185,61 @@ class GAN(object):
             img.show()
 
     def train(self, epochs, batch_size=128, learning_rate=2e-4):
-        # list_of_image = glob.glob(self.data_path + "/train2014" + "/input_*.jpg")
-        # list_of_targets = glob.glob(self.data_path + "/train2014" + "/target_*.jpg")
-        # list_of_image = glob.glob(self.data_path + "/input_*.jpg")
-        # list_of_targets = glob.glob(self.data_path + "/target_*.jpg")
         dic = pickle.load(open(self.data_path + '/data.pkl', 'rb'))
-        prefixes = ['/input_', '/img_']
+        prefixes = ['/img_', '/img_']
 
-        # assert len(list_of_image) is not 0
-        # assert len(list_of_image) == len(list_of_targets)
-
-        # n_batch = len(list_of_targets) // batch_size
-
-        # noise = T.matrix('noise')
         x = T.tensor4('x')
         y = T.tensor4('image')
-        # target = T.tensor4('target')
+        z = T.matrix('z')
 
         x = x.reshape((batch_size, 3, 64, 64))
         y = y.reshape((batch_size, 3, 64, 64))
+        z = z.reshape((batch_size, 100))
 
         logging.info("Building the model")
-        noise = image_encoder(x)
-        gen = generator(noise)
+        encoded_img = image_encoder(x)
+
+        gen = generator(None, z)
 
         dis = discriminator(y)
 
+        encoded_img = set_params(encoded_img, "/Users/Gabriel/Desktop/encoder.npz")
         # Theano Function that output the real and fake value
         # from the discriminator and the generator
         real = lasagne.layers.get_output(dis, y)
         fake = lasagne.layers.get_output(dis, lasagne.layers.get_output(gen))
 
         # Create loss expressions
-        gen_loss = binary_crossentropy(fake, 1).mean()
-        dis_loss = (binary_crossentropy(real, 1) + binary_crossentropy(fake, 0)).mean()
+        gen_loss = lasagne.objectives.binary_crossentropy(fake, 1).mean()
+        dis_loss = (lasagne.objectives.binary_crossentropy(real, 1).mean() + lasagne.objectives.binary_crossentropy(fake, 0).mean()).mean()
 
         # Create update expressions
         gen_params = lasagne.layers.get_all_params(gen, trainable=True)
         dis_params = lasagne.layers.get_all_params(dis, trainable=True)
         eta = theano.shared(lasagne.utils.floatX(learning_rate))
         updates = lasagne.updates.adam(
-            gen_loss, gen_params, learning_rate=eta, beta1=0.5
+            gen_loss, gen_params, learning_rate=eta, beta1=0.9
         )
         updates.update(
             lasagne.updates.adam(
-                dis_loss, dis_params, learning_rate=eta, beta1=0.5
+                dis_loss, dis_params, learning_rate=eta, beta1=0.9
             )
         )
+        # updates = lasagne.updates.adam(cost, params,  learning_rate=eta)
 
         logging.info("Compiling function")
         # Theano function that performs a training on a minibatch
+        z_fn = theano.function(
+            [x],
+            outputs=lasagne.layers.get_output(encoded_img)
+        )
+
         train_fn = theano.function(
-            [x, y],
-            [(real > .5).mean(),
-             (fake < .5).mean()],
-            updates=updates
+            inputs=[z, y],
+            outputs=[gen_loss,
+                     dis_loss],
+            updates=updates,
+            on_unused_input='warn'
         )
 
         # Theano function that creates data
@@ -303,11 +264,11 @@ class GAN(object):
                     inputs, targets = batch
                     inputs = inputs.astype(np.float32)
                     targets = targets.astype(np.float32)
-                    err += np.array(train_fn(inputs, targets))
+                    err += np.array(train_fn(z_fn(inputs), targets))
                     b += 1
 
-            logging.info("Epoch {} of {}, elapsed time: {:.3f} seconds".format(
-                e, epochs, time.time() - tic
+            logging.info("Epoch {} of {}, elapsed time: {:.3f} minutes".format(
+                e + 1, epochs, (time.time() - tic)/60
             ))
 
             logging.info("Loss {}".format(err / b))
@@ -326,8 +287,15 @@ class GAN(object):
         #     img = Image.fromarray(img.reshape(64, 64, 3))
         #     img.show()
 
-
         logging.info("End of training")
+
+
+def create_logging(LoggingPath, logname):
+    logpath = LoggingPath + logname
+    logging.basicConfig(filename=logpath,
+                        level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s: %(message)s',
+                        datefmt='%m/%d/%Y %H:%M:%S')
 
 
 def pars_args():
@@ -371,14 +339,11 @@ def pars_args():
 
 def main(args):
     args.LoggingPath = os.path.expandvars(args.LoggingPath)
+    post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan.log'
+
     if not os.path.isdir(args.LoggingPath):
         os.mkdir(args.LoggingPath)
-    logname = '/log_' + time.strftime('%m_%d_%Y_%I_%M_%S') + '_gan.log'
-    logpath = args.LoggingPath + logname
-    logging.basicConfig(filename=logpath,
-                        level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s: %(message)s',
-                        datefmt='%m/%d/%Y %I:%M:%S')
+
     g = GAN(
         data_path=args.DataPath,
         save_path=args.SavePath,
@@ -386,17 +351,21 @@ def main(args):
     )
 
     if args.train is not 0:
+        logname = '/Training_' + post
+        create_logging(args.LoggingPath, logname)
         g.train(
             epochs=args.epochs,
             batch_size=args.BatchSize,
             learning_rate=args.LearningRate
         )
+        indexes = np.arange(0, 10)
+        g.generate_images(indexes=indexes)
     else:
+        logname = '/Generation_' + post
+        create_logging(args.LoggingPath, logname)
         #indexes = np.random.randint(0, 80000, 10)
         indexes = np.arange(0, 10)
         g.generate_images(indexes=indexes)
-    indexes = np.arange(0, 10)
-    g.generate_images(indexes=indexes)
 
     return
 
