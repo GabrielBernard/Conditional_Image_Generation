@@ -7,9 +7,10 @@ import lasagne
 from lasagne.layers import InputLayer, DenseLayer, Conv2DLayer, Deconv2DLayer, BatchNormLayer, ReshapeLayer
 from lasagne.nonlinearities import LeakyRectify, rectify, sigmoid, tanh
 import logging
-import _pickle as pickle
+# import _pickle as pickle
+import six.moves.cPickle as pickle
 import argparse
-import discriminator
+# import discriminator
 import PIL.Image as Image
 
 try:
@@ -29,6 +30,14 @@ def add_noize(input):
         center[1] - 16: center[1] + 16] = (np.random.random((3, 32, 32)) + 1) / 100
 
     return input
+
+log = False
+
+def log_fn(s):
+    if log:
+        logging.info(s)
+    else:
+        print(s)
 
 
 def image_encoder(input_var=None):
@@ -50,7 +59,7 @@ def image_encoder(input_var=None):
     # Fully connected layer
     net = DenseLayer(net, 100, nonlinearity=tanh)
 
-    logging.info("Image encoder output shape: {}".format(net.output_shape))
+    log_fn("Image encoder output shape: {}".format(net.output_shape))
     return net
 
 
@@ -76,7 +85,39 @@ def image_decoder(net=None, input_var=None):
     # 3 units of 64 x 64 (rgb image)
     net = Deconv2DLayer(net, 3, 2, stride=2)
 
-    logging.info("Image decoder output shape: {}".format(net.output_shape))
+    log_fn("Image decoder output shape: {}".format(net.output_shape))
+    return net
+
+
+def discriminator(input_var=None):
+    """
+    Function that build the discriminator
+    :param input_var: Input variable that goes in Lasagne.layers.InputLayer
+    """
+
+    # Output size of convolution formula:
+    # o = (i + 2p - k) / s + 1
+    # Where o is the output size, i the input, p
+    # the padding, k the kernel size and s the stride
+
+    lrelu = LeakyRectify(0.2)
+    net = InputLayer((None, 3, 32, 32), input_var=input_var)
+    # 128 units of 16 x 16
+    net = BatchNormLayer(Conv2DLayer(net, 128, 2, stride=2, nonlinearity=lrelu))
+    # 256 units of 8 x 8
+    net = BatchNormLayer(Conv2DLayer(net, 256, 2, stride=2, nonlinearity=lrelu))
+    # 512 units of 4 x 4
+    net = BatchNormLayer(Conv2DLayer(net, 512, 2, stride=2, nonlinearity=lrelu))
+    # 512 units of 8 x 8
+    # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1, nonlinearity=lrelu))
+    # 1024 units of 4 x 4
+    # net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2, nonlinearity=lrelu))
+    # Fully connected layers
+    net = BatchNormLayer(DenseLayer(net, 512, nonlinearity=lrelu))
+    net = DenseLayer(net, 1, nonlinearity=sigmoid)
+
+    logging.info("Discriminator output shape : {}".format( net.output_shape))
+
     return net
 
 
@@ -103,7 +144,7 @@ def generator(input_var=None):
     # 3 units of 32 x 32
     net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=tanh)
 
-    logging.info("Generator output shape: {}".format(net.output_shape))
+    log_fn("Generator output shape: {}".format(net.output_shape))
     return net
 
 
@@ -121,16 +162,20 @@ def generator_op(input_var=None):
 
 
 def create_logging(LoggingPath, logname):
+
+    if not os.path.isdir(LoggingPath):
+        os.mkdir(LoggingPath)
+
     logpath = LoggingPath + logname
     logging.basicConfig(filename=logpath,
-                        level=logging.INFO,
+                        level=log,
                         format='%(asctime)s - %(levelname)s: %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S')
 
 
 def generate_images(dic, indexes, data_path, load_path):
     pre = data_path + '/input_'
-    print("Creating theano variables")
+    log_fn("Creating theano variables")
     x = T.tensor4('x')
     z = T.matrix('z')
 
@@ -144,7 +189,7 @@ def generate_images(dic, indexes, data_path, load_path):
         gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
     lasagne.layers.set_all_param_values(gen, gen_param_values)
 
-    print("Building theano functions")
+    log_fn("Building theano functions")
     encode_fn = theano.function(
         [x],
         lasagne.layers.get_output(enc, x)
@@ -155,7 +200,7 @@ def generate_images(dic, indexes, data_path, load_path):
         lasagne.layers.get_output(gen, z)
     )
 
-    print("Fetching data")
+    log_fn("Fetching data")
     list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
     data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
     samples = gen_fn(encode_fn(lasagne.utils.floatX(data)).astype(np.float32))
@@ -180,24 +225,25 @@ def generate_images(dic, indexes, data_path, load_path):
         img = Image.fromarray(img)
         img.show()
 
-    print("End of Generation")
+    log_fn("End of Generation")
 
 
 def main(args):
-    args.LoggingPath = os.path.expandvars(args.LoggingPath)
-    post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan3.log'
-    logname = '/Training_' + post
-    create_logging(args.LoggingPath, logname)
+    if args.LoggingPath is None:
+        log = False
+    else:
+        args.LoggingPath = os.path.expandvars(args.LoggingPath)
+        post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan3.log'
+        logname = '/Training_' + post
+        create_logging(args.LoggingPath, logname)
+        log = True
 
-    if not os.path.isdir(args.LoggingPath):
-        os.mkdir(args.LoggingPath)
+    np.random.seed(args.seed)
 
-    np.random.seed(args.Seed)
-    
-    logging.info("Loading dictionnary")
+    log_fn("Loading dictionnary")
     batch_size = args.BatchSize
     dic = pickle.load(open(args.DataPath + '/data.pkl', 'rb'))
-    # index = np.arange(0, np.round(len(dic)/10/2))
+    # index = np.arange(0, np.round(len(dic)/100))
     # dic = {key: dic[key] for key in index}
     prefixes = ['/input_', '/target_']
 
@@ -215,12 +261,12 @@ def main(args):
     y = T.tensor4('y')
     z = T.matrix('z')
 
-    logging.info("Generating networks")
+    log_fn("Generating networks")
     encoder = image_encoder(x)
     decoder = image_decoder()
 
     gen = generator(z)
-    dis = discriminator.discriminator()
+    dis = discriminator()
 
     decode = lasagne.layers.get_output(decoder, lasagne.layers.get_output(encoder, x))
 
@@ -241,20 +287,16 @@ def main(args):
 
     # Generator
     gen_cost_dis = lasagne.objectives.binary_crossentropy(fake, 1).mean()
-    # Discriminator
-    # dis_cost_real = lasagne.objectives.binary_crossentropy(real, 0.9).mean()
-    # dis_cost_gen = lasagne.objectives.binary_crossentropy(fake, 0.).mean()
 
+    # Discriminator
     dis_cost = lasagne.objectives.binary_crossentropy(real, 0.9) + \
         lasagne.objectives.binary_crossentropy(fake, 0.)
 
     dis_cost = dis_cost.mean()
-
     dis_cost_real = lasagne.objectives.binary_crossentropy(real, 1).mean()
-
     dis_cost_fake = lasagne.objectives.binary_crossentropy(fake, 0).mean()
 
-    logging.info("Building functions")
+    log_fn("Building functions")
 
     updates = lasagne.updates.adam(
         gen_cost_dis, gen_params, learning_rate=0.0002, beta1=0.5
@@ -278,10 +320,6 @@ def main(args):
         gen_cost, gen_params, learning_rate=0.0002
     )
 
-    # dis_updates = lasagne.updates.adam(
-    #     dis_cost, dis_params, learning_rate=0.0002
-    # )
-
     dis_updates_real = lasagne.updates.adam(
         dis_cost_real, dis_params, learning_rate=0.0002
     )
@@ -297,12 +335,6 @@ def main(args):
          dis_cost],
         updates=gen_updates
     )
-
-    # train_dis_fn = theano.function(
-    #     [y, z],
-    #     dis_cost,
-    #     updates=dis_updates
-    # )
 
     train_dis_real = theano.function(
         [y, z],
@@ -331,20 +363,10 @@ def main(args):
         updates=encode_decode_updates
     )
 
-    # gen_pred_fn = theano.function(
-    #     [z],
-    #     lasagne.layers.get_output(gen, z, deterministic=True)
-    # )
-    #
-    # dis_pred_fn = theano.function(
-    #     [y],
-    #     lasagne.layers.get_output(dis, y, deterministic=True)
-    # )
-
-    logging.info("Training")
+    log_fn("Training")
     for epoch in range(args.epochs):
-        train_both = True
-        train_only_gen = False
+        # train_both = True
+        train_gen = True
         ind = 0
         it = 1
         loss = 0.
@@ -361,42 +383,34 @@ def main(args):
                 inputs = inputs.astype(np.float32)
                 targets = targets.astype(np.float32)
 
-                # n = noise[ind:ind + min(targets.shape[0], len(dic) - ind)]
                 train_encode(inputs)
                 n = encode_fn(inputs)
-                if train_both:
-                    loss += np.array(train_fn(targets, n))
-                    loss += np.array(train_gen_fn(targets, n))
-                elif train_only_gen:
-                    loss += np.array(train_gen_fn(targets, n))
-                elif not train_only_gen:
-                    if (it % 2) == 0:
-                        loss += np.array(train_dis_real(targets, n))
-                    else:
-                        loss += np.array(train_dis_fake(targets, n))
+                tmp_loss = np.array(train_fn(targets, n))
+                if epoch == 0 and train_gen:
+                    tmp_loss = np.array(train_gen_fn(targets, n))
 
-                # if boolean[np.random.randint(0, 1)]:
-                #     loss += np.array(train_gen_fn(targets, n))
-
+                loss += tmp_loss
                 ind += min(batch_size, len(dic) - ind)
-                # logging.info("Loss : {}".format(loss / it))
-                if (it % 250) == 0:
-                    logging.info("Loss : {}".format(loss / it))
+                if (it % 5) == 0:
+                    log_fn("Epoch: {} of {}, Loss : {}".format(epoch, args.epochs - 1,  loss / it))
 
-                # tmp = 0
-                # br = True
-                tmp_loss_gen = loss[0] / it
-                tmp_loss_dis = loss[1] / it
-                if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
-                    train_both = False
-                    train_only_gen = True
-                elif tmp_loss_gen > 0.48 or tmp_loss_dis < 0.45:
-                    train_both = True
-                    train_only_gen = False
-                elif tmp_loss_gen > 0.6 or tmp_loss_dis < 0.45:
-                    train_both = False
-                    train_only_gen = False
+                mean_real = loss[0] / it
+                mean_fake = loss[1] / it
+                if mean_real < 0.42 or mean_fake > 0.58:
+                    train_gen = False
+                # if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
+                #     train_both = False
+                #     train_only_gen = True
+                # elif tmp_loss_gen > 0.48 or tmp_loss_dis < 0.45:
+                #     train_both = True
+                #     train_only_gen = False
+                # elif tmp_loss_gen > 0.6 or tmp_loss_dis < 0.45:
+                #     train_both = False
+                #     train_only_gen = False
 
+                if np.isnan(loss[2]):
+                    log_fn("Add to break")
+                    break
                 it += 1
 
         np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
@@ -404,39 +418,7 @@ def main(args):
         np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
         np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
 
-    # print("Testing")
-    # index = np.random.randint(0, len(inputs), 10)
-    # data = np.asarray([inputs[n] for n in index]).astype(np.float32)
-    # # noise = np.asarray([noise[n] for n in index]).astype(np.float32)
-    # noise = encode_fn(data)
-    # samples = gen_pred_fn(noise)
-    #
-    # print("Dis prediction on targets")
-    # print(dis_pred_fn(targets))
-    # print("Dis prediction on samples")
-    # print(dis_pred_fn(samples))
-    #
-    # center = (
-    #     int(np.floor(data.shape[2] / 2.)),
-    #     int(np.floor(data.shape[3] / 2.))
-    # )
-    #
-    # data = data.transpose((0, 2, 3, 1))
-    # samples = samples.transpose((0, 2, 3, 1))
-    # for index, inner in enumerate(samples):
-    #     img = data[index]
-    #     img[
-    #     center[0] - 16: center[0] + 16,
-    #     center[1] - 16: center[1] + 16, :
-    #     ] = inner
-    #     img = (img + 1) * 127.5
-    #     img = np.rint(img).astype(np.int32)
-    #     img = np.clip(img, 0, 255)
-    #     img = img.astype(np.uint8)
-    #     img = Image.fromarray(img)
-    #     img.show()
-
-    logging.info("End")
+    log_fn("End")
     return 0
 
 
@@ -477,7 +459,7 @@ def pars_args():
         help="Complete path to directory where to load stored computation"
     )
     arguments.add_argument(
-        '-logp', "--LoggingPath", type=str, default="$HOME/Desktop/log_gan",
+        '-logp', "--LoggingPath", type=str, default=None,
         help="Complete path to directory where to load info"
     )
     return arguments.parse_args()

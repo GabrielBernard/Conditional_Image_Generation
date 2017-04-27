@@ -7,7 +7,8 @@ import lasagne
 from lasagne.layers import InputLayer, DenseLayer, Conv2DLayer, Deconv2DLayer, BatchNormLayer, ReshapeLayer
 from lasagne.nonlinearities import LeakyRectify, rectify, sigmoid, tanh
 import logging
-import _pickle as pickle
+# import _pickle as pickle
+import six.moves.cPickle as pickle
 import argparse
 
 try:
