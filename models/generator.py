@@ -19,6 +19,10 @@ except ImportError:
     from utils import data_utils
 
 
+def log_fn(s):
+    logging.info(s)
+
+
 def add_noize(input):
     center = (
         int(np.floor(input.shape[2] / 2.)),
@@ -30,14 +34,6 @@ def add_noize(input):
         center[1] - 16: center[1] + 16] = (np.random.random((3, 32, 32)) + 1) / 100
 
     return input
-
-log = False
-
-def log_fn(s):
-    if log:
-        logging.info(s)
-    else:
-        print(s)
 
 
 def image_encoder(input_var=None):
@@ -116,7 +112,7 @@ def discriminator(input_var=None):
     net = BatchNormLayer(DenseLayer(net, 512, nonlinearity=lrelu))
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
 
-    logging.info("Discriminator output shape : {}".format( net.output_shape))
+    log_fn("Discriminator output shape : {}".format( net.output_shape))
 
     return net
 
@@ -168,7 +164,7 @@ def create_logging(LoggingPath, logname):
 
     logpath = LoggingPath + logname
     logging.basicConfig(filename=logpath,
-                        level=log,
+                        level=logging.INFO,
                         format='%(asctime)s - %(levelname)s: %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S')
 
@@ -189,6 +185,11 @@ def generate_images(dic, indexes, data_path, load_path):
         gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
     lasagne.layers.set_all_param_values(gen, gen_param_values)
 
+    dec = image_decoder()
+    with np.load(load_path + '/GAN3_dec.npz') as f:
+        dec_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(dec, dec_param_values)
+
     log_fn("Building theano functions")
     encode_fn = theano.function(
         [x],
@@ -200,10 +201,17 @@ def generate_images(dic, indexes, data_path, load_path):
         lasagne.layers.get_output(gen, z)
     )
 
+    dec_fn = theano.function(
+        [z],
+        lasagne.layers.get_output(dec, z)
+    )
+
     log_fn("Fetching data")
     list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
     data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
-    samples = gen_fn(encode_fn(lasagne.utils.floatX(data)).astype(np.float32))
+    encoded = encode_fn(lasagne.utils.floatX(data)).astype(np.float32)
+    samples = gen_fn(encoded)
+    decoded = dec_fn(encoded)
 
     center = (
         int(np.floor(data.shape[2] / 2.)),
@@ -212,38 +220,45 @@ def generate_images(dic, indexes, data_path, load_path):
 
     data = data.transpose((0, 2, 3, 1))
     samples = samples.transpose((0, 2, 3, 1))
+    decoded = decoded.transpose((0, 2, 3, 1))
     for index, inner in enumerate(samples):
         img = data[index]
+        img2 = decoded[index]
         img[
         center[0] - 16: center[0] + 16,
         center[1] - 16: center[1] + 16, :
         ] = inner
         img = (img + 1) * 127.5
+        img2 = (img2 + 1) * 127.5
         img = np.rint(img).astype(np.int32)
+        img2 = np.rint(img2).astype(np.int32)
         img = np.clip(img, 0, 255)
+        img2 = np.clip(img2, 0, 255)
         img = img.astype(np.uint8)
+        img2 = img2.astype(np.uint8)
         img = Image.fromarray(img)
-        img.show()
+        img2 = Image.fromarray(img2)
+        img2.show()
 
     log_fn("End of Generation")
 
 
 def main(args):
     if args.LoggingPath is None:
-        log = False
+        log = True
     else:
         args.LoggingPath = os.path.expandvars(args.LoggingPath)
         post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan3.log'
         logname = '/Training_' + post
         create_logging(args.LoggingPath, logname)
-        log = True
+        log = False
 
     np.random.seed(args.seed)
     log_fn("Loading dictionnary")
     batch_size = args.BatchSize
     dic = pickle.load(open(args.DataPath + '/data.pkl', 'rb'))
-    index = np.arange(0, np.round(len(dic)/1000))
-    dic = {key: dic[key] for key in index}
+    # index = np.arange(0, np.round(len(dic)/1000))
+    # dic = {key: dic[key] for key in index}
     log_fn("Dictionnary length {}".format(len(dic)))
     prefixes = ['/input_', '/target_']
 
@@ -369,8 +384,8 @@ def main(args):
     )
 
     log_fn("Training_encoder")
-    num_iter = np.round((len(dic) - 1)/ batch_size)
-    for epoch in range(2):
+    num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
+    for epoch in range(1):
         # train_both = True
         train_gen = True
         ind = 0
@@ -390,10 +405,10 @@ def main(args):
                 targets = targets.astype(np.float32)
 
                 loss += train_encode(inputs)
-                if (it % 250) == 0:
+                if (it % 1) == 0:
                     log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
-                        epoch, args.epochs - 1,
-                        it - 1, num_iter, loss / it)
+                        epoch + 1, args.epochs,
+                        it, num_iter, loss / it)
                     )
 
                 it += 1
@@ -430,25 +445,27 @@ def main(args):
 
                 n = encode_fn(inputs)
                 tmp_loss = np.array(train_fn(targets, n))
-                tmp_loss = np.array(train_gen_fn(targets, n))
+                if train_gen:
+                    tmp_loss = np.array(train_gen_fn(targets, n))
+
                 loss += tmp_loss
                 # if epoch == 0 and train_gen:
                 #     tmp_loss = np.array(train_gen_fn(targets, n))
 
                 # loss += tmp_loss
                 # ind += min(batch_size, len(dic) - ind)
-                if (it % 250) == 0:
+                if (it % 1) == 0:
                     log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
-                        epoch, args.epochs - 1,
-                        it - 1, num_iter, loss / it)
+                        epoch + 1, args.epochs,
+                        it, num_iter, loss / it)
                     )
 
                 mean_real = loss[0] / it
                 mean_fake = loss[1] / it
                 if mean_real < 0.42 or mean_fake > 0.58:
                     train_gen = False
-                    train_dis_real(targets, z)
-                    train_dis_fake(targets, z)
+                    train_dis_real(targets, n)
+                    train_dis_fake(targets, n)
                 # if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
                 #     train_both = False
                 #     train_only_gen = True
