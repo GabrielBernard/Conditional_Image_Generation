@@ -28,8 +28,8 @@ github_username:  GabrielBernard
 gems:
   - jekyll-pandoc
 # Build settings
-# markdown: kramdown
-markdown: Pandoc
+markdown: kramdown
+# markdown: Pandoc
 theme: minima
 exclude:
   - Gemfile
