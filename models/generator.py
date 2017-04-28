@@ -1,3 +1,13 @@
+"""
+Script that creates a DCGAN network.
+
+This script is made to be use on the
+MSCOCO dataset downsampled to 64x64 pixels.
+
+Author: Gabriel Bernard
+Updated on: 2017-04-28
+"""
+
 import os
 import time
 import numpy as np
@@ -7,10 +17,8 @@ import lasagne
 from lasagne.layers import InputLayer, DenseLayer, Conv2DLayer, Deconv2DLayer, BatchNormLayer, ReshapeLayer
 from lasagne.nonlinearities import LeakyRectify, rectify, sigmoid, tanh
 import logging
-# import _pickle as pickle
 import six.moves.cPickle as pickle
 import argparse
-# import discriminator
 import PIL.Image as Image
 
 try:
@@ -18,16 +26,70 @@ try:
 except ImportError:
     from utils import data_utils
 
+"""
+Generative Adversarial Network (GAN)
+
+The GAN network is made of 2 models that compete
+against each other. The first network is a Generative
+network and the second is a discriminative network.
+The generative network have the goals to generate
+data that is realistic enough to fools the discriminative
+network into thinking it is real data (data that comes from
+the same statistical distribution then the real data it receives
+from samples).
+"""
+
+
+# Global argument that controls the logging function
+log_b = False
+
+
+def set_log(b):
+    """
+    Sets the log_b global variable.
+
+    :param b: boolean valuethat decides whether to
+        log in a file or to print in the console.
+    """
+
+    global log_b
+    log_b = b
+
 
 def log_fn(s):
-    print(s)
+    """
+    Log function
+
+    :param s: String to print
+    """
+
+    if log_b:
+        # Log in file
+        logging.info(s)
+    else:
+        # Print in console
+        print(s)
 
 
 def add_noize(input):
+    """
+    Function that adds noize in the middle of the
+    input images.
+
+    :param input: Numpy array of shape (batch_size, 3, 64, 64)
+    :return input with noise in the middle
+    """
+
     center = (
         int(np.floor(input.shape[2] / 2.)),
         int(np.floor(input.shape[3] / 2.))
     )
+
+    # input[:,
+    #       center[0] - 16: center[0] + 16,
+    #       center[1] - 16: center[1] + 16, :
+    # ] = np.random.random((input.shape[0], 3, 32, 32) + 1) / 100
+    # Loops that fills the input with random noise in the middle
     for i in range(input.shape[0]):
         input[i, :,
         center[0] - 16: center[0] + 16,
@@ -37,6 +99,11 @@ def add_noize(input):
 
 
 def image_encoder(input_var=None):
+    """
+    Function that builds an image encoder.
+
+    :param input_var: Input variable that goes in Lasagne.layers.InputLayer
+    """
 
     # Output size of convolution formula:
     # o = (i + 2p - k) / s + 1
@@ -60,6 +127,13 @@ def image_encoder(input_var=None):
 
 
 def image_decoder(net=None, input_var=None):
+    """
+    Function that build an image decoder.
+
+    :param net: If a net is given, it will be used as input layer to build
+        the rest of the network
+    :param input_var: Input variable that goes in Lasagne.layers.InputLayer
+    """
 
     # Output size of deconvolution formula:
     # o = s(i - 1) + a + k - 2p
@@ -88,6 +162,7 @@ def image_decoder(net=None, input_var=None):
 def discriminator(input_var=None):
     """
     Function that build the discriminator
+
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
 
@@ -110,6 +185,7 @@ def discriminator(input_var=None):
     net = BatchNormLayer(Conv2DLayer(net, 1024, 2, stride=2, nonlinearity=lrelu))
     # Fully connected layers
     net = DenseLayer(net, 1024, nonlinearity=lrelu)
+    # Layer that computes the probability of the image being real
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
 
     log_fn("Discriminator output shape : {}".format( net.output_shape))
@@ -120,63 +196,114 @@ def discriminator(input_var=None):
 def generator(input_var=None):
     """
     Function that build the generator network
+
     :param input_var: Input variable that goes in Lasagne.layers.InputLayer
     """
 
     net = InputLayer(shape=(None, 100), input_var=input_var)
-    # net = BatchNormLayer(DenseLayer(net, 1024))
-    # Project
+    # Projection
     net = BatchNormLayer(DenseLayer(net, 1024*4*4))
     # Reshape
     net = BatchNormLayer(ReshapeLayer(net, ([0], 1024, 4, 4)))
     # 512 units of 8 x 8
     net = BatchNormLayer(Deconv2DLayer(net, 512, 2, stride=2, nonlinearity=rectify))
-    # net = BatchNormLayer(Conv2DLayer(net, 512, 3, pad=1, nonlinearity=rectify))
     # 256 units of 16 x 16
     net = BatchNormLayer(Deconv2DLayer(net, 256, 2, stride=2, nonlinearity=rectify))
-    # net = BatchNormLayer(Conv2DLayer(net, 256, 3, pad=1, nonlinearity=rectify))
     # 128 units of 16 x 16
     net = BatchNormLayer(Conv2DLayer(net, 128, 3, pad=1, nonlinearity=rectify))
-    # 3 units of 32 x 32
+    # 64 units of 32 x 32
     net = Deconv2DLayer(net, 64, 2, stride=2, nonlinearity=tanh)
-
+    # 3 units of 64 x 64 (aka generated image)
     net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=tanh)
 
     log_fn("Generator output shape: {}".format(net.output_shape))
     return net
 
 
-def generator_op(input_var=None):
-    Normal = lasagne.init.Normal
-    gen = InputLayer(shape=(None, 100), input_var=input_var)
-    gen = BatchNormLayer(DenseLayer(gen, num_units=1024 * 4 * 4, W=Normal(0.05), nonlinearity=rectify))
-    gen = ReshapeLayer(gen, ([0], 1024, 4, 4))
-    gen = BatchNormLayer(Deconv2DLayer(gen, num_filters=512, filter_size=(2, 2), stride=2, W=Normal(0.05), nonlinearity=rectify))
-    gen = BatchNormLayer(Deconv2DLayer(gen, num_filters=256, filter_size=(2, 2), stride=2, W=Normal(0.05), nonlinearity=rectify))
-    gen = Deconv2DLayer(gen, num_filters=3, filter_size=(2, 2), stride=2, W=Normal(0.05), nonlinearity=tanh)
-    # gen = Deconv2DLayer(gen, num_filters=3, filter_size=(2, 2), stride=2, nonlinearity=tanh)
-
-    return gen
-
-
 def create_logging(LoggingPath, logname):
+    """
+    Function that creates the logging path and file.
 
+    :param LoggingPath: Path to where the log file must be created
+    :param logname: name of the file to be created
+    """
+
+    # Checking the path for environment variables
+    LoggingPath = os.path.expandvars(LoggingPath)
+
+    # If path is does not exist, creates it
     if not os.path.isdir(LoggingPath):
         os.mkdir(LoggingPath)
 
+    # Creates the log file
     logpath = LoggingPath + logname
-    logging.basicConfig(filename=logpath,
-                        level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s: %(message)s',
-                        datefmt='%m/%d/%Y %H:%M:%S')
+    logging.basicConfig(
+        filename=logpath,
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s: %(message)s',
+        datefmt='%m/%d/%Y %H:%M:%S'
+    )
 
 
-def generate_images(dic, indexes, data_path, load_path):
+def training_encoder(batch_size, dic, prefixes, data_path, train_encode, save_path, encoder, decoder):
+
+    num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
+
+    log_fn("Beginning Training of encoder")
+    for epoch in range(1):
+        # train_both = True
+        train_gen = True
+        ind = 0
+        it = 1
+        loss = 0.
+        for data in data_utils.load_data_to_ram(
+                length=10 * batch_size,
+                dic=dic,
+                prefixes=prefixes,
+                data_path=data_path,
+                size=[(64, 64), (32, 32)]
+        ):
+            for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+                inputs, targets = batch
+                inputs = add_noize(inputs)
+                inputs = inputs.astype(np.float32)
+                targets = None
+
+                loss += train_encode(inputs)
+                if (it % 1) == 0:
+                    log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
+                        epoch + 1, 1,
+                        it, num_iter, loss / it)
+                    )
+
+                it += 1
+
+        np.savez(save_path + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
+        np.savez(save_path + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
+
+    return encoder, decoder
+
+
+def generate_images(dic, indexes, data_path, load_path, save_path=None):
+    """
+    Function that generates images from inputs, the encoder and the generator.
+
+    :param dic: Dictionnary containing the name of all the input files
+    :param indexes: Array containing the indexes of the input images names
+    :param data_path: Path to the dataset
+    :param load_path: Path to the files containing the network parameters
+    :param save_path: Path to save the generated images
+    """
+
+    # Prefix of the input images
     pre = data_path + '/input_'
     log_fn("Creating theano variables")
+
+    # Theano variables
     x = T.tensor4('x')
     z = T.matrix('z')
 
+    # Generating the network
     enc = image_encoder()
     with np.load(load_path + '/GAN3_enc.npz') as f:
         enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
@@ -193,156 +320,216 @@ def generate_images(dic, indexes, data_path, load_path):
     lasagne.layers.set_all_param_values(dec, dec_param_values)
 
     log_fn("Building theano functions")
+    # Encoding function
     encode_fn = theano.function(
         [x],
         lasagne.layers.get_output(enc, x)
     )
 
+    # Generation function
     gen_fn = theano.function(
         [z],
         lasagne.layers.get_output(gen, z)
     )
 
-    dec_fn = theano.function(
-        [z],
-        lasagne.layers.get_output(dec, z)
-    )
+    # Decoding function (only for debugging)
+    # dec_fn = theano.function(
+    #     [z],
+    #     lasagne.layers.get_output(dec, z)
+    # )
 
     log_fn("Fetching data")
+    # Loading image's names from indexes in the dictionnary
     list_of_inputs = [pre + dic.get(key.astype(np.int32)) + '.jpg' for key in indexes]
+    # Loading images in array and adding some random noize
     data = data_utils.load_data(list_of_images=list_of_inputs, size=(64, 64))
+    data = add_noize(data)
+    # Encoding images
     encoded = encode_fn(lasagne.utils.floatX(data)).astype(np.float32)
+    # Generating images
     samples = gen_fn(encoded)
-    decoded = dec_fn(encoded)
+    # Decoding encoded images (only for debugging)
+    # decoded = dec_fn(encoded)
 
+    # Finding center
     center = (
         int(np.floor(data.shape[2] / 2.)),
         int(np.floor(data.shape[3] / 2.))
     )
 
+    # Reshaping all images into (batch_size, 64, 64, 3)
     data = data.transpose((0, 2, 3, 1))
     samples = samples.transpose((0, 2, 3, 1))
-    decoded = decoded.transpose((0, 2, 3, 1))
+    # decoded = decoded.transpose((0, 2, 3, 1))
     for index, inner in enumerate(samples):
         img = data[index]
-        img2 = decoded[index]
+        # Replacing the center of the images
+        # with the one generated
         img[
-        center[0] - 16: center[0] + 16,
-        center[1] - 16: center[1] + 16, :
+            center[0] - 16: center[0] + 16,
+            center[1] - 16: center[1] + 16, :
         ] = inner[
-        center[0] - 16: center[0] + 16,
-        center[1] - 16: center[1] + 16, :
+            center[0] - 16: center[0] + 16,
+            center[1] - 16: center[1] + 16, :
         ]
+        # De-normalizing the image
         img = (img + 1) * 127.5
-        img2 = (img2 + 1) * 127.5
+        # Making sure everything is in the rgb range
         img = np.rint(img).astype(np.int32)
-        img2 = np.rint(img2).astype(np.int32)
         img = np.clip(img, 0, 255)
-        img2 = np.clip(img2, 0, 255)
+        # Creating an image like array into uint8
         img = img.astype(np.uint8)
-        img2 = img2.astype(np.uint8)
         img = Image.fromarray(img)
-        img2 = Image.fromarray(img2)
+        # Displaying the images
         img.show()
-        # img.save('/Users/Gabriel/Desktop/' + str(index) + '.png', 'PNG')
+        # Saving the results
+        if save_path is not None:
+            name = '/Generated_' + dic[index] + '.png'
+            img.save(save_path + name, 'PNG')
+
+        # Decoded images display
+        # img2 = decoded[index]
+        # img2 = (img2 + 1) * 127.5
+        # img2 = np.rint(img2).astype(np.int32)
+        # img2 = np.clip(img2, 0, 255)
+        # img2 = img2.astype(np.uint8)
+        # img2 = Image.fromarray(img2)
 
     log_fn("End of Generation")
 
 
 def main(args):
+    # Setting logging informations
     if args.LoggingPath is None:
-        log = True
+        set_log(False)
     else:
-        args.LoggingPath = os.path.expandvars(args.LoggingPath)
         post = 'log_' + time.strftime('%m_%d_%Y_%H_%M_%S') + '_gan3.log'
         logname = '/Training_' + post
         create_logging(args.LoggingPath, logname)
-        log = False
+        set_log(True)
 
+    # Setting random seed and batch_size
     np.random.seed(args.seed)
-    log_fn("Loading dictionnary")
     batch_size = args.BatchSize
+
+    log_fn("Loading dictionnary")
     dic = pickle.load(open(args.DataPath + '/data.pkl', 'rb'))
-    # index = np.arange(0, np.round(len(dic)/1000))
-    # dic = {key: dic[key] for key in index}
+
     log_fn("Dictionnary length {}".format(len(dic)))
+
+    # Prefixes of the images to load
     prefixes = ['/input_', '/img_']
 
+    # If not training, only generates images from inputs and exits
     if args.train == 0:
+        log_fn("Generating images")
         indexes = np.random.randint(0, len(dic), 10)
         generate_images(
             dic=dic,
             indexes=indexes,
             data_path=args.DataPath,
-            load_path=args.LoadPath
+            load_path=args.LoadPath,
+            save_path=args.SavePath
         )
         exit(0)
 
+    # Theano variables
     x = T.tensor4('x')
     y = T.tensor4('y')
     z = T.matrix('z')
 
     log_fn("Generating networks")
+    # Encoder that encodes the input in a vector of shape (batch_size, 100)
     encoder = image_encoder(x)
-    # decoder = image_decoder()
 
+    # Generator and discriminator networks
     gen = generator(z)
     dis = discriminator()
 
-    # with np.load(args.LoadPath + '/GAN3_enc.npz') as f:
-    #     enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(encoder, enc_param_values)
-    #
-    # with np.load(args.LoadPath + '/GAN3_gen.npz') as f:
-    #     gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(gen, gen_param_values)
-    #
-    # with np.load(args.LoadPath + '/GAN3_dis.npz') as f:
-    #     dis_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(dis, dis_param_values)
+    # Load old network's parameters
+    if args.ContinueTraining is not None:
+        log_fn("Loading networks parameters")
+        with np.load(args.LoadPath + '/GAN3_enc.npz') as f:
+            enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(encoder, enc_param_values)
 
-    # decode = lasagne.layers.get_output(decoder, lasagne.layers.get_output(encoder, x))
+        with np.load(args.LoadPath + '/GAN3_gen.npz') as f:
+            gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(gen, gen_param_values)
 
-    encode_params = lasagne.layers.get_all_params(encoder, trainable=True)
-    # decode_params = lasagne.layers.get_all_params(decoder, trainable=True)
+        with np.load(args.LoadPath + '/GAN3_dis.npz') as f:
+            dis_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+        lasagne.layers.set_all_param_values(dis, dis_param_values)
 
-    # encode_decode_cost = lasagne.objectives.squared_error(decode, x).mean()
+    # Train encoder
+    if args.TrainEncoder is not None:
+        log_fn("Training the encoder")
+        # Decode the image encoded by the encoder
+        decoder = image_decoder()
+        # Load old decoder's parameters
+        if args.ContinueTraining is not None:
+            log_fn("Loading decoder's parameters")
+            with np.load(args.LoadPath + '/GAN3_dec.npz') as f:
+                dec_params_values = [f['arr_%d' % i] for i in range(len(f.files))]
+            lasagne.layers.set_all_param_values(decoder, dec_params_values)
+        # Decoder output
+        decode = lasagne.layers.get_output(decoder, lasagne.layers.get_output(encoder, x))
+        # Encode parameters
+        encode_params = lasagne.layers.get_all_params(encoder, trainable=True)
+        # Decoder parameters
+        decode_params = lasagne.layers.get_all_params(decoder, trainable=True)
+        # Cost function for encoder decoder
+        encode_decode_cost = lasagne.objectives.squared_error(decode, x).mean()
+        # Update function for encoder decoder
+        encode_decode_updates = lasagne.updates.adam(
+            encode_decode_cost, encode_params + decode_params, learning_rate=0.001
+        )
+        log_fn("Building the encoder training function")
+        # Training encoder function
+        train_encode = theano.function(
+            [x],
+            encode_decode_cost,
+            updates=encode_decode_updates
+        )
 
-    # encode_decode_updates = lasagne.updates.adam(
-    #     encode_decode_cost, encode_params + decode_params, learning_rate=0.001
-    # )
+        # Training encoder
+        encoder, decoder = training_encoder(
+            batch_size=batch_size,
+            dic=dic,
+            prefixes=prefixes,
+            data_path=args.DataPath,
+            train_encode=train_encode,
+            save_path=args.SavePath,
+            encoder=encoder,
+            decoder=decoder
+        )
 
+    # Result for the discriminator with the real data
     real = lasagne.layers.get_output(dis, y)
+    # Result for the discriminator for the generated images
     fake = lasagne.layers.get_output(dis, lasagne.layers.get_output(gen, z))
 
+    # Generator and discriminator parameters
     gen_params = lasagne.layers.get_all_params(gen, trainable=True)
     dis_params = lasagne.layers.get_all_params(dis, trainable=True)
 
-    # Generator
-    gen_cost_dis = lasagne.objectives.binary_crossentropy(fake, 1).mean()
-
-    # Discriminator
+    # Discriminator cost
     dis_cost = lasagne.objectives.binary_crossentropy(real, 0.9) + \
         lasagne.objectives.binary_crossentropy(fake, 0.)
 
     dis_cost = dis_cost.mean()
-    dis_cost_real = lasagne.objectives.binary_crossentropy(real, 1).mean()
-    dis_cost_fake = lasagne.objectives.binary_crossentropy(fake, 0).mean()
 
-    square_error = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
-    log_fn("Building functions")
-
+    # Discriminator updates
     updates = lasagne.updates.adam(
         dis_cost, dis_params, learning_rate=0.0002, beta1=0.5
     )
-    # updates = lasagne.updates.adam(
-    #     gen_cost_dis, gen_params, learning_rate=0.0002, beta1=0.5
-    # )
 
-    # updates.update(lasagne.updates.adam(
-    #     dis_cost, dis_params, learning_rate=0.0002, beta1=0.5
-    # ))
+    # Function that computes the squared error between the generated images and the real one
+    # This is only use for monitoring purposes and is not used in the training algorithms
+    square_error = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
 
+    log_fn("Building functions")
+    # Discriminator training function
     train_fn = theano.function(
         [y, z],
         [(real > 0.5).mean(),
@@ -351,21 +538,15 @@ def main(args):
         updates=updates
     )
 
-    # gen_cost = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
+    # Generator cost
     gen_cost = lasagne.objectives.binary_crossentropy(fake, 1).mean()
 
+    # Generator updates
     gen_updates = lasagne.updates.adam(
         gen_cost, gen_params, learning_rate=0.0002
     )
 
-    dis_updates_real = lasagne.updates.adam(
-        dis_cost_real, dis_params, learning_rate=0.0002
-    )
-
-    dis_updates_fake = lasagne.updates.adam(
-        dis_cost_fake, dis_params, learning_rate=0.0002
-    )
-
+    # Train generator function
     train_gen_fn = theano.function(
         [y, z],
         [(real > 0.5).mean(),
@@ -374,95 +555,22 @@ def main(args):
         updates=gen_updates
     )
 
-    train_dis_real = theano.function(
-        [y, z],
-        [(real > 0.5).mean(),
-         (fake < 0.5).mean(),
-         square_error],
-        updates=dis_updates_real
-    )
-
-    train_dis_fake = theano.function(
-        [y, z],
-        [(real > 0.5).mean(),
-         (fake < 0.5).mean(),
-         square_error],
-        updates=dis_updates_fake
-    )
-
+    # Encoder function
     encode_fn = theano.function(
         [x],
         lasagne.layers.get_output(encoder, x)
     )
 
-    # train_encode = theano.function(
-    #     [x],
-    #     encode_decode_cost,
-    #     updates=encode_decode_updates
-    # )
-
+    # Number of iterations before end of each epoch
     num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
 
-    # log_fn("Training_encoder")
-    #
-    # for epoch in range(1):
-    #     # train_both = True
-    #     train_gen = True
-    #     ind = 0
-    #     it = 1
-    #     loss = 0.
-    #     for data in data_utils.load_data_to_ram(
-    #             length=10 * batch_size,
-    #             dic=dic,
-    #             prefixes=prefixes,
-    #             data_path=args.DataPath,
-    #             size=[(64, 64), (32, 32)]
-    #     ):
-    #         for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
-    #             inputs, targets = batch
-    #             inputs = add_noize(inputs)
-    #             inputs = inputs.astype(np.float32)
-    #             targets = targets.astype(np.float32)
-    #
-    #             loss += train_encode(inputs)
-    #             if (it % 1) == 0:
-    #                 log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
-    #                     epoch + 1, args.epochs,
-    #                     it, num_iter, loss / it)
-    #                 )
-    #
-    #             it += 1
-    #
-    #     np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
-    #     np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
-
-    # decoder = None
-    # decode = None
-    # decode_params = None
-    # encode_decode_updates = None
-    # encode_decode_cost = None
-    # train_encode = None
-
-    with np.load(args.LoadPath + '/GAN3_enc.npz') as f:
-        enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    lasagne.layers.set_all_param_values(encoder, enc_param_values)
-
-    with np.load(args.LoadPath + '/GAN3_gen.npz') as f:
-        gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    lasagne.layers.set_all_param_values(gen, gen_param_values)
-
-    with np.load(args.LoadPath + '/GAN3_dis.npz') as f:
-        dis_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    lasagne.layers.set_all_param_values(dis, dis_param_values)
-
     log_fn("Training GAN")
+    # Iterate over the epochs
     for epoch in range(args.epochs):
-        train_both = True
-        train_dis = False
-        train_gen = False
-        ind = 0
-        it = 1
+        it = 1  # Iteration count
         loss = 0.
+        # Iterate over all the data, loading 10
+        # batches at a time on ram
         for data in data_utils.load_data_to_ram(
                 length=10 * batch_size,
                 dic=dic,
@@ -470,67 +578,48 @@ def main(args):
                 data_path=args.DataPath,
                 size=[(64, 64), (64, 64)]
         ):
+            # Iterate over each batches fo make the computations
             for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+
+                # Devide batch in inputs and targets
                 inputs, targets = batch
+
+                # Add noise to data
                 inputs = add_noize(inputs)
+
+                # Define everything as float32 for theano computations
                 inputs = inputs.astype(np.float32)
                 targets = targets.astype(np.float32)
 
+                # Encode data
                 n = encode_fn(inputs)
 
+                # Training discriminator
                 tmp_loss = np.array(train_fn(targets, n))
-                # if train_gen:
-                tmp_loss = np.array(train_gen_fn(targets, n))
-                tmp_loss = np.array(train_gen_fn(targets, n))
 
-                loss += tmp_loss
-                # if epoch == 0 and train_gen:
-                #     tmp_loss = np.array(train_gen_fn(targets, n))
+                # Training generator
+                tmp_loss += np.array(train_gen_fn(targets, n))
+                tmp_loss += np.array(train_gen_fn(targets, n))
 
-                # loss += tmp_loss
-                # ind += min(batch_size, len(dic) - ind)
+                # Compute loss
+                loss += tmp_loss / 3
+
+                # Logging every now and then
                 if (it % 1) == 0:
-                    log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
-                        epoch + 1, args.epochs,
-                        it, num_iter, loss / it)
+                    log_fn(
+                        "Epoch: {} of {}, it {} of {}, Loss : {}".format(
+                            epoch + 1, args.epochs,
+                            it, num_iter, loss / it)
                     )
 
-                mean_real = loss[0] / it
-                mean_fake = loss[1] / it
-                # while mean_fake < 0.46:
-                #     tmp_loss = np.array(train_dis_fake(targets, n))
-                #     mean_fake = tmp_loss[1]
-                #     print("Fake low, Loss: {}".format(mean_fake))
-                #
-                # while mean_fake > 0.58:
-                #     tmp_loss = np.array(train_gen_fn(targets, n))
-                #     mean_fake = tmp_loss[1]
-                #     print("Fake high, Loss: {}".format(mean_fake))
-                #
-                # while mean_real < 0.48:
-                #     tmp_loss = np.array(train_dis_real(targets, n))
-                #     mean_real = tmp_loss[0]
-                #     print("Real low, Loss: {}".format(mean_real))
-
-                # if mean_real < 0.42 or mean_fake > 0.58:
-                #     train_gen = False
-                #     train_dis_real(targets, n)
-                #     train_dis_fake(targets, n)
-                # if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
-                #     train_both = False
-                #     train_only_gen = True
-                # elif tmp_loss_gen > 0.48 or tmp_loss_dis < 0.45:
-                #     train_both = True
-                #     train_only_gen = False
-                # elif tmp_loss_gen > 0.6 or tmp_loss_dis < 0.45:
-                #     train_both = False
-                #     train_only_gen = False
-
+                # If something goes wrong and a nan appear, stop training
                 if np.isnan(loss[2]):
                     log_fn("Add to break")
                     break
-                it += 1
 
+                it += 1  # Update iteration
+
+            # Save parameters after every batch, just in case
             np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
             np.savez(args.SavePath + '/GAN3_dis.npz', *lasagne.layers.get_all_param_values(dis))
 
@@ -539,7 +628,16 @@ def main(args):
 
 
 def pars_args():
+    """
+    Parse every arguments given through the command line.
+
+    :return arguments: Object with all arguments parsed
+    """
+
+    # Creating an argument parser
     arguments = argparse.ArgumentParser()
+
+    # Adding arguments needed by parser
     arguments.add_argument(
         '-s', '--seed', type=int, default=32,
         help="Seed for the random number generator"
@@ -578,6 +676,15 @@ def pars_args():
         '-logp', "--LoggingPath", type=str, default=None,
         help="Complete path to directory where to load info"
     )
+    arguments.add_argument(
+        '-te', "--TrainEncoder", type=str, default=None,
+        help="If something is given, trains the encoder"
+    )
+    arguments.add_argument(
+        '-ct', "--ContinueTraining", type=str, default=None,
+        help="If something is give, loads param from LoadPath variables before training"
+    )
+
     return arguments.parse_args()
 
 

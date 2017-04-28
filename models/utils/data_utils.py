@@ -1,9 +1,9 @@
 """
-Utility data functions
+Utility data module
 MSCOCO downsampled to 64x64 pixels
 
 Author: Gabriel Bernard
-Updated on: 2017-03-07
+Updated on: 2017-04-28
 """
 
 import os
@@ -12,9 +12,7 @@ import gc
 import numpy as np
 import PIL.Image as Image
 
-# Try to import cpickle
 import six.moves.cPickle as pickle
-# import _pickle as pickle
 
 
 def verify_archive(dataset):
@@ -185,56 +183,81 @@ def load_data(list_of_images, size):
 
     :param list_of_images: List that contains all the data names of a mini batch
     :param size: Tuple that contains the size of the images
-    :return: Numpy array containing the batch of data in the form
+    :return: Numpy array containing the normalized batch of data in the form
         [ batch, channels, height, width ]
     """
+
+    # Initialize return array
     ret = np.zeros([len(list_of_images), size[0], size[1], 3])
 
+    # Fetch the data on disk
     for i, file in enumerate(list_of_images):
         # Load image
         img = Image.open(file)
         img = np.asarray(img, dtype='float32')
-        # img = img.transpose((2, 0, 1))
-        # img = img.reshape(3, size[0], size[1])
         ret[i] = img
 
+    # Normalize and return data
     return ret.transpose((0, 3, 1, 2)) / 127.5 - 1
 
 
 def load_data_to_ram(length, dic, prefixes, data_path, size=[(64, 64), (64, 64)]):
+    """
+    Generator that loads multiple batches of inputs and targets
+    on ram and yields them until it has passed all the dataset (dic).
+
+    :param length: Number of batches to load on ram
+    :param dic: Dictionnary containing the names of data to fetch
+    :param prefixes: Prefixes of the data to fetch in the form [inputs_pref, targets_pref]
+    :param data_path: Path from where to load the data
+    :param size: Array containing two tuples with the height and width of the inputs and targets
+
+    :yield input_array, target_array: Arrays containing the inputs and targets
+          for the training, in the form [batch, channels, height, width]
+    """
+
+    # Chosing the length in order to not overflow the dictionnary
     l = min(length, len(dic))
+    # Fetching the sizes
     size1 = size[0]
     size2 = size[1]
+    # Initialization of the input_array and target_array
     input_array = np.zeros((l, size1[0], size1[1], 3))
     target_array = np.zeros((l, size2[0], size2[1], 3))
+    # Concatanating the datapath with the names' prefixes
     input = data_path + prefixes[0]
     target = data_path + prefixes[1]
+    # Looping over the dictionnary's keys
     j = 0
     for i in dic:
+        # Getting the mane of the image to load
         name = dic[i] + '.jpg'
+        # Loading the input image
         img = Image.open(input + name)
+        # Creating a numpy array of the image
         img = np.asarray(img, dtype='float32')
-        # img = img.transpose(2, 0, 1)
-        # img = img.reshape(3, size1[0], size1[1])
-        # input_array[j] = img / 255
+        # Registering the image in the input_array
         input_array[j] = img
 
+        # Same as before but for the target image
         img = Image.open(target + name)
         img = np.asarray(img, dtype='float32')
-        # img = img.reshape(3, size2[0], size2[1])
-        # target_array[j] = img / 255
+        # Registering in the target_array
         target_array[j] = img
+        # Counting the amount of images loaded
         j += 1
-
+        # If j is the asked length or all the dictionnary was loaded
         if (j == l) | (i == len(dic) - 1):
+            # Normalizing the data
             input_array = input_array.transpose((0, 3, 1, 2)) / 127.5 - 1
             target_array = target_array.transpose((0, 3, 1, 2)) / 127.5 - 1
+            # yield everything
             yield input_array, target_array
+            # Computing the next iteration's length
             l = np.floor(min(length, len(dic) - i)).astype(np.int)
+            # Re-initializing the input and target array and the count
             input_array = np.zeros((l, size1[0], size1[1], 3))
             target_array = np.zeros((l, size2[0], size2[1], 3))
-            # input = data_path + prefixes[0]
-            # target = data_path + prefixes[1]
             j = 0
 
 
@@ -242,25 +265,30 @@ def minibatch_iterator(x, y, batch_size):
     """
     Iterator on a minibatch.
 
-    :param x: Input data to fetch
-    :param y: Target data to fetch
+    :param x: Input data to array in the form [datas, channels, heigh, width]
+    :param y: Target data to array in the form [datas, channels, height, width]
     :param batch_size: Size of a batch
     :return: Two arrays containing the input and target
     """
+
+    # Making sure that there is the same amout of inputs x and targets y
     assert len(x) == len(y)
+    # In case there is less data then the batch_size in x and y
     i = None
+    # Fetching the data from the x and y arrays
     for i in range(0, len(x) - batch_size + 1, batch_size):
         batch = slice(i, i + batch_size)
         yield x[batch], y[batch]
+
     # Make sure that all the dataset is passed
-    # even if it is less then a full batch_size
+    # even if x and y have less then a full batch_size
     if i is None:
         i = 0
-    # Fetch the last data from the dataset
+    # Fetch all data from x and y if there is less then a full batch_size
     if len(x) - batch_size < 0:
         batch = slice(i, len(x))
         yield x[batch], y[batch]
-
+    # Fetch remaining data if x and y's length is are factors of the batch_size
     if i + batch_size < len(x):
         batch = slice(i + batch_size, len(x) - 1)
         yield x[batch], y[batch]
