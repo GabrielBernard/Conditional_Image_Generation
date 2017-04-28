@@ -20,7 +20,7 @@ except ImportError:
 
 
 def log_fn(s):
-    logging.info(s)
+    print(s)
 
 
 def add_noize(input):
@@ -97,9 +97,9 @@ def discriminator(input_var=None):
     # the padding, k the kernel size and s the stride
 
     lrelu = LeakyRectify(0.2)
-    net = InputLayer((None, 3, 32, 32), input_var=input_var)
+    net = InputLayer((None, 3, 64, 64), input_var=input_var)
     # 128 units of 16 x 16
-    net = BatchNormLayer(Conv2DLayer(net, 128, 2, stride=2, nonlinearity=lrelu))
+    net = Conv2DLayer(net, 128, 2, stride=2, nonlinearity=lrelu)
     # 256 units of 8 x 8
     net = BatchNormLayer(Conv2DLayer(net, 256, 2, stride=2, nonlinearity=lrelu))
     # 512 units of 4 x 4
@@ -107,9 +107,9 @@ def discriminator(input_var=None):
     # 512 units of 8 x 8
     # net = batch_norm(Conv2DLayer(net, 512, 3, pad=1, nonlinearity=lrelu))
     # 1024 units of 4 x 4
-    # net = batch_norm(Conv2DLayer(net, 1024, 2, stride=2, nonlinearity=lrelu))
+    net = BatchNormLayer(Conv2DLayer(net, 1024, 2, stride=2, nonlinearity=lrelu))
     # Fully connected layers
-    net = BatchNormLayer(DenseLayer(net, 512, nonlinearity=lrelu))
+    net = DenseLayer(net, 1024, nonlinearity=lrelu)
     net = DenseLayer(net, 1, nonlinearity=sigmoid)
 
     log_fn("Discriminator output shape : {}".format( net.output_shape))
@@ -138,6 +138,8 @@ def generator(input_var=None):
     # 128 units of 16 x 16
     net = BatchNormLayer(Conv2DLayer(net, 128, 3, pad=1, nonlinearity=rectify))
     # 3 units of 32 x 32
+    net = Deconv2DLayer(net, 64, 2, stride=2, nonlinearity=tanh)
+
     net = Deconv2DLayer(net, 3, 2, stride=2, nonlinearity=tanh)
 
     log_fn("Generator output shape: {}".format(net.output_shape))
@@ -227,7 +229,10 @@ def generate_images(dic, indexes, data_path, load_path):
         img[
         center[0] - 16: center[0] + 16,
         center[1] - 16: center[1] + 16, :
-        ] = inner
+        ] = inner[
+        center[0] - 16: center[0] + 16,
+        center[1] - 16: center[1] + 16, :
+        ]
         img = (img + 1) * 127.5
         img2 = (img2 + 1) * 127.5
         img = np.rint(img).astype(np.int32)
@@ -238,7 +243,8 @@ def generate_images(dic, indexes, data_path, load_path):
         img2 = img2.astype(np.uint8)
         img = Image.fromarray(img)
         img2 = Image.fromarray(img2)
-        img2.show()
+        img.show()
+        # img.save('/Users/Gabriel/Desktop/' + str(index) + '.png', 'PNG')
 
     log_fn("End of Generation")
 
@@ -260,7 +266,7 @@ def main(args):
     # index = np.arange(0, np.round(len(dic)/1000))
     # dic = {key: dic[key] for key in index}
     log_fn("Dictionnary length {}".format(len(dic)))
-    prefixes = ['/input_', '/target_']
+    prefixes = ['/input_', '/img_']
 
     if args.train == 0:
         indexes = np.random.randint(0, len(dic), 10)
@@ -278,21 +284,33 @@ def main(args):
 
     log_fn("Generating networks")
     encoder = image_encoder(x)
-    decoder = image_decoder()
+    # decoder = image_decoder()
 
     gen = generator(z)
     dis = discriminator()
 
-    decode = lasagne.layers.get_output(decoder, lasagne.layers.get_output(encoder, x))
+    # with np.load(args.LoadPath + '/GAN3_enc.npz') as f:
+    #     enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    # lasagne.layers.set_all_param_values(encoder, enc_param_values)
+    #
+    # with np.load(args.LoadPath + '/GAN3_gen.npz') as f:
+    #     gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    # lasagne.layers.set_all_param_values(gen, gen_param_values)
+    #
+    # with np.load(args.LoadPath + '/GAN3_dis.npz') as f:
+    #     dis_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    # lasagne.layers.set_all_param_values(dis, dis_param_values)
+
+    # decode = lasagne.layers.get_output(decoder, lasagne.layers.get_output(encoder, x))
 
     encode_params = lasagne.layers.get_all_params(encoder, trainable=True)
-    decode_params = lasagne.layers.get_all_params(decoder, trainable=True)
+    # decode_params = lasagne.layers.get_all_params(decoder, trainable=True)
 
-    encode_decode_cost = lasagne.objectives.squared_error(decode, x).mean()
+    # encode_decode_cost = lasagne.objectives.squared_error(decode, x).mean()
 
-    encode_decode_updates = lasagne.updates.adam(
-        encode_decode_cost, encode_params + decode_params, learning_rate=0.001
-    )
+    # encode_decode_updates = lasagne.updates.adam(
+    #     encode_decode_cost, encode_params + decode_params, learning_rate=0.001
+    # )
 
     real = lasagne.layers.get_output(dis, y)
     fake = lasagne.layers.get_output(dis, lasagne.layers.get_output(gen, z))
@@ -377,56 +395,71 @@ def main(args):
         lasagne.layers.get_output(encoder, x)
     )
 
-    train_encode = theano.function(
-        [x],
-        encode_decode_cost,
-        updates=encode_decode_updates
-    )
+    # train_encode = theano.function(
+    #     [x],
+    #     encode_decode_cost,
+    #     updates=encode_decode_updates
+    # )
 
-    log_fn("Training_encoder")
     num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
-    for epoch in range(1):
-        # train_both = True
-        train_gen = True
-        ind = 0
-        it = 1
-        loss = 0.
-        for data in data_utils.load_data_to_ram(
-                length=10 * batch_size,
-                dic=dic,
-                prefixes=prefixes,
-                data_path=args.DataPath,
-                size=[(64, 64), (32, 32)]
-        ):
-            for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
-                inputs, targets = batch
-                inputs = add_noize(inputs)
-                inputs = inputs.astype(np.float32)
-                targets = targets.astype(np.float32)
 
-                loss += train_encode(inputs)
-                if (it % 1) == 0:
-                    log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
-                        epoch + 1, args.epochs,
-                        it, num_iter, loss / it)
-                    )
+    # log_fn("Training_encoder")
+    #
+    # for epoch in range(1):
+    #     # train_both = True
+    #     train_gen = True
+    #     ind = 0
+    #     it = 1
+    #     loss = 0.
+    #     for data in data_utils.load_data_to_ram(
+    #             length=10 * batch_size,
+    #             dic=dic,
+    #             prefixes=prefixes,
+    #             data_path=args.DataPath,
+    #             size=[(64, 64), (32, 32)]
+    #     ):
+    #         for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+    #             inputs, targets = batch
+    #             inputs = add_noize(inputs)
+    #             inputs = inputs.astype(np.float32)
+    #             targets = targets.astype(np.float32)
+    #
+    #             loss += train_encode(inputs)
+    #             if (it % 1) == 0:
+    #                 log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
+    #                     epoch + 1, args.epochs,
+    #                     it, num_iter, loss / it)
+    #                 )
+    #
+    #             it += 1
+    #
+    #     np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
+    #     np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
 
-                it += 1
+    # decoder = None
+    # decode = None
+    # decode_params = None
+    # encode_decode_updates = None
+    # encode_decode_cost = None
+    # train_encode = None
 
-        np.savez(args.SavePath + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
-        np.savez(args.SavePath + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
+    with np.load(args.LoadPath + '/GAN3_enc.npz') as f:
+        enc_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(encoder, enc_param_values)
 
-    decoder = None
-    decode = None
-    decode_params = None
-    encode_decode_updates = None
-    encode_decode_cost = None
-    train_encode = None
+    with np.load(args.LoadPath + '/GAN3_gen.npz') as f:
+        gen_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(gen, gen_param_values)
+
+    with np.load(args.LoadPath + '/GAN3_dis.npz') as f:
+        dis_param_values = [f['arr_%d' % i] for i in range(len(f.files))]
+    lasagne.layers.set_all_param_values(dis, dis_param_values)
 
     log_fn("Training GAN")
     for epoch in range(args.epochs):
-        # train_both = True
-        train_gen = True
+        train_both = True
+        train_dis = False
+        train_gen = False
         ind = 0
         it = 1
         loss = 0.
@@ -435,7 +468,7 @@ def main(args):
                 dic=dic,
                 prefixes=prefixes,
                 data_path=args.DataPath,
-                size=[(64, 64), (32, 32)]
+                size=[(64, 64), (64, 64)]
         ):
             for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
                 inputs, targets = batch
@@ -444,9 +477,11 @@ def main(args):
                 targets = targets.astype(np.float32)
 
                 n = encode_fn(inputs)
+
                 tmp_loss = np.array(train_fn(targets, n))
-                if train_gen:
-                    tmp_loss = np.array(train_gen_fn(targets, n))
+                # if train_gen:
+                tmp_loss = np.array(train_gen_fn(targets, n))
+                tmp_loss = np.array(train_gen_fn(targets, n))
 
                 loss += tmp_loss
                 # if epoch == 0 and train_gen:
@@ -462,10 +497,25 @@ def main(args):
 
                 mean_real = loss[0] / it
                 mean_fake = loss[1] / it
-                if mean_real < 0.42 or mean_fake > 0.58:
-                    train_gen = False
-                    train_dis_real(targets, n)
-                    train_dis_fake(targets, n)
+                # while mean_fake < 0.46:
+                #     tmp_loss = np.array(train_dis_fake(targets, n))
+                #     mean_fake = tmp_loss[1]
+                #     print("Fake low, Loss: {}".format(mean_fake))
+                #
+                # while mean_fake > 0.58:
+                #     tmp_loss = np.array(train_gen_fn(targets, n))
+                #     mean_fake = tmp_loss[1]
+                #     print("Fake high, Loss: {}".format(mean_fake))
+                #
+                # while mean_real < 0.48:
+                #     tmp_loss = np.array(train_dis_real(targets, n))
+                #     mean_real = tmp_loss[0]
+                #     print("Real low, Loss: {}".format(mean_real))
+
+                # if mean_real < 0.42 or mean_fake > 0.58:
+                #     train_gen = False
+                #     train_dis_real(targets, n)
+                #     train_dis_fake(targets, n)
                 # if tmp_loss_gen < 0.45 or tmp_loss_dis > 0.7:
                 #     train_both = False
                 #     train_only_gen = True
@@ -481,8 +531,8 @@ def main(args):
                     break
                 it += 1
 
-        np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
-        np.savez(args.SavePath + '/GAN3_disc.npz', *lasagne.layers.get_all_param_values(dis))
+            np.savez(args.SavePath + '/GAN3_gen.npz', *lasagne.layers.get_all_param_values(gen))
+            np.savez(args.SavePath + '/GAN3_dis.npz', *lasagne.layers.get_all_param_values(dis))
 
     log_fn("End")
     return 0
