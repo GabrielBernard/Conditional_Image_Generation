@@ -4,9 +4,12 @@ data/
 _site/
 .sass-cache/
 __pycache__/
+tmp/
 
 # Ignored files
 .jekyll-metadata
 Gemfile
 Gemfile.lock
 ./datas/examples.py
+*.pbs
+*.pyc
