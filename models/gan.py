@@ -112,7 +112,7 @@ def image_encoder(input_var=None):
 
     net = InputLayer(shape=(None, 3, 64, 64), input_var=input_var)
     # 128 units of 32 x 32
-    net = BatchNormLayer(Conv2DLayer(net, 128, 2, stride=2))
+    net = Conv2DLayer(net, 128, 2, stride=2)
     # 256 units of 16 x 16
     net = BatchNormLayer(Conv2DLayer(net, 256, 2, stride=2))
     # 512 units of 8 x 8
@@ -143,7 +143,7 @@ def image_decoder(net=None, input_var=None):
     if net is None:
         net = InputLayer(shape=(None, 100), input_var=input_var)
     # Project
-    net = BatchNormLayer(DenseLayer(net, 1024 * 4 * 4, nonlinearity=tanh))
+    net = DenseLayer(net, 1024 * 4 * 4, nonlinearity=tanh)
     # Reshape
     net = ReshapeLayer(net, ([0], 1024, 4, 4))
     # 512 units of 8 x 8
@@ -202,7 +202,7 @@ def generator(input_var=None):
 
     net = InputLayer(shape=(None, 100), input_var=input_var)
     # Projection
-    net = BatchNormLayer(DenseLayer(net, 1024*4*4))
+    net = DenseLayer(net, 1024*4*4)
     # Reshape
     net = BatchNormLayer(ReshapeLayer(net, ([0], 1024, 4, 4)))
     # 512 units of 8 x 8

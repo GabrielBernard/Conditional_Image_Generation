@@ -40,4 +40,5 @@ pandoc:
   extensions:
     - normalize
     - smart
+    - mathjax
     - bibliography: bibliography/bibliography.bib
