@@ -1,11 +1,9 @@
 ---
 layout: post
-title:  "RNN"
+title:  "Thoughts on RNN"
 date:   2017-04-29 14:15:00 -0500
 categories: info
 ---
-
-## Thoughts on RNN
 
 For the course project, a set of sentences describing each image was provided in the dataset. We were supposed to try to find a way to use those sentences to help the generative model in its task. I think the use of an RNN would have made this possible.
 
