@@ -245,39 +245,67 @@ def create_logging(LoggingPath, logname):
     )
 
 
-def training_encoder(batch_size, dic, prefixes, data_path, train_encode, save_path, encoder, decoder):
+def training_encoder(
+        batch_size,
+        dic,
+        prefixes,
+        data_path,
+        train_encode,
+        save_path,
+        encoder,
+        decoder,
+        display_rate=50
+):
+    """
+    Train the encoder for 1 epoch over the inputs given in the dictionnary
+    and saves the parameters for the encoder and decoder.
 
+    Parameters are prety specific.
+    :return encoder, decoder: The encoder and decoder trained
+    """
     num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
-
+    # Variable that register the begining time of the training
+    start_time = time.time()
     log_fn("Beginning Training of encoder")
     for epoch in range(1):
-        # train_both = True
-        train_gen = True
-        ind = 0
         it = 1
         loss = 0.
+        # Loop that loads the data to live memory
         for data in data_utils.load_data_to_ram(
                 length=10 * batch_size,
                 dic=dic,
                 prefixes=prefixes,
                 data_path=data_path,
-                size=[(64, 64), (32, 32)]
+                size=[(64, 64), (64, 64)]
         ):
+            # Loop that loads the batches
             for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+                # Start time for this batch calculations
+                tic = time.time()
                 inputs, targets = batch
+                # Adding noise to the inputs hole
                 inputs = add_noize(inputs)
                 inputs = inputs.astype(np.float32)
+                # We don't need to have the targets and I did not want
+                # to create an other generator that would load the data
                 targets = None
-
+                # Compute the loss and train the encoder and the decoder
                 loss += train_encode(inputs)
-                if (it % 1) == 0:
+                # Displaying progress
+                if (it % display_rate) == 0:
                     log_fn("Epoch: {} of {}, it {} of {}, Loss : {}".format(
                         epoch + 1, 1,
-                        it, num_iter, loss / it)
-                    )
-
+                        it, num_iter, loss / it
+                    ))
+                    toc = time.time()
+                    log_fn("Time taken: {} sec, Elapsed time: {} min".format(
+                        toc - tic,
+                        (toc - start_time) / 60
+                    ))
+                # Update iteration index
                 it += 1
 
+        # Saving parameters
         np.savez(save_path + '/GAN3_enc.npz', *lasagne.layers.get_all_param_values(encoder))
         np.savez(save_path + '/GAN3_dec.npz', *lasagne.layers.get_all_param_values(decoder))
 
@@ -399,6 +427,12 @@ def generate_images(dic, indexes, data_path, load_path, save_path=None):
 
 
 def main(args):
+    """
+    Main function that train the network and controls the behavior of the program
+
+    :param args: Object that contains the parsed command line arguments
+    """
+
     # Setting logging informations
     if args.LoggingPath is None:
         set_log(False)
@@ -501,7 +535,8 @@ def main(args):
             train_encode=train_encode,
             save_path=args.SavePath,
             encoder=encoder,
-            decoder=decoder
+            decoder=decoder,
+            display_rate=args.DisplayRate
         )
 
     # Result for the discriminator with the real data
@@ -514,14 +549,17 @@ def main(args):
     dis_params = lasagne.layers.get_all_params(dis, trainable=True)
 
     # Discriminator cost
-    dis_cost = lasagne.objectives.binary_crossentropy(real, 0.9) + \
+    dis_cost = lasagne.objectives.binary_crossentropy(real, 1) + \
         lasagne.objectives.binary_crossentropy(fake, 0.)
 
     dis_cost = dis_cost.mean()
 
+    # Shared learning rate parameter
+    shrd_lr = theano.shared(lasagne.utils.floatX(args.LearningRate))
+
     # Discriminator updates
     updates = lasagne.updates.adam(
-        dis_cost, dis_params, learning_rate=0.0002, beta1=0.5
+        dis_cost, dis_params, learning_rate=shrd_lr, beta1=0.5
     )
 
     # Function that computes the squared error between the generated images and the real one
@@ -529,6 +567,7 @@ def main(args):
     square_error = lasagne.objectives.squared_error(lasagne.layers.get_output(gen, z), y).mean()
 
     log_fn("Building functions")
+    start_build = time.time()
     # Discriminator training function
     train_fn = theano.function(
         [y, z],
@@ -543,7 +582,7 @@ def main(args):
 
     # Generator updates
     gen_updates = lasagne.updates.adam(
-        gen_cost, gen_params, learning_rate=0.0002
+        gen_cost, gen_params, learning_rate=shrd_lr
     )
 
     # Train generator function
@@ -564,7 +603,10 @@ def main(args):
     # Number of iterations before end of each epoch
     num_iter = np.round((len(dic) - 1) / batch_size).astype(np.int)
 
+    log_fn("Building took {} min".format((time.time() - start_build) / 60))
+
     log_fn("Training GAN")
+    start_time = time.time()
     # Iterate over the epochs
     for epoch in range(args.epochs):
         it = 1  # Iteration count
@@ -580,6 +622,8 @@ def main(args):
         ):
             # Iterate over each batches fo make the computations
             for batch in data_utils.minibatch_iterator(x=data[0], y=data[1], batch_size=batch_size):
+                # Start time for this batch calculations
+                tic = time.time()
 
                 # Devide batch in inputs and targets
                 inputs, targets = batch
@@ -605,11 +649,17 @@ def main(args):
                 loss += tmp_loss / 3
 
                 # Logging every now and then
-                if (it % 1) == 0:
+                if (it % args.DisplayRate) == 0:
                     log_fn(
                         "Epoch: {} of {}, it {} of {}, Loss : {}".format(
                             epoch + 1, args.epochs,
                             it, num_iter, loss / it)
+                    )
+                    toc = time.time()
+                    log_fn(
+                        "Time taken: {} sec, Elapsed time {} min".format(
+                            toc - tic,  (toc - start_time) / 60
+                        )
                     )
 
                 # If something goes wrong and a nan appear, stop training
@@ -653,11 +703,11 @@ def pars_args():
         required=True
     )
     arguments.add_argument(
-        '-bs', "--BatchSize", type=int, default=64,
+        '-bs', "--BatchSize", type=int, default=128,
         help="Size of the minibatch to train"
     )
     arguments.add_argument(
-        "-ne", "--epochs", type=int, default=200,
+        "-ne", "--epochs", type=int, default=5,
         help="Number of step for training"
     )
     arguments.add_argument(
@@ -682,7 +732,11 @@ def pars_args():
     )
     arguments.add_argument(
         '-ct', "--ContinueTraining", type=str, default=None,
-        help="If something is give, loads param from LoadPath variables before training"
+        help="If something is given, loads param from LoadPath variables before training"
+    )
+    arguments.add_argument(
+        '-dr', "--DisplayRate", type=int, default=50,
+        help="After how many batches informations should be displayed"
     )
 
     return arguments.parse_args()
